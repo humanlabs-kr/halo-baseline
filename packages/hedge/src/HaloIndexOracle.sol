@@ -56,6 +56,13 @@ contract HaloIndexOracle {
     error TooLate();
     error MissingInputs();
     error BondTooSmall(uint256 required, uint256 given);
+    error NotPublished();
+    error NotDisputed();
+    error NotFinalized();
+    error NotVoidable();
+    error WindowOpen();
+    error WindowClosed();
+    error PayoutFailed();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -78,6 +85,10 @@ contract HaloIndexOracle {
         uint256 bond,
         uint64 challengeEnd
     );
+    event Disputed(bytes32 indexed seriesId, uint64 indexed epoch, address indexed by, uint256 bond);
+    event Resolved(bytes32 indexed seriesId, uint64 indexed epoch, bool publisherWasRight, uint256 pot);
+    event Finalized(bytes32 indexed seriesId, uint64 indexed epoch, int256 valueBps);
+    event Voided(bytes32 indexed seriesId, uint64 indexed epoch);
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -188,6 +199,9 @@ contract HaloIndexOracle {
     /// @dev Per-epoch because publication cadence differs by series.
     mapping(bytes32 => mapping(uint64 => uint64)) internal _challengeWindow;
 
+    mapping(bytes32 => mapping(uint64 => address)) internal _disputer;
+    mapping(bytes32 => mapping(uint64 => uint256)) internal _disputeBond;
+
     /*//////////////////////////////////////////////////////////////
                                 PUBLICATION
     //////////////////////////////////////////////////////////////*/
@@ -247,6 +261,154 @@ contract HaloIndexOracle {
         if (address(openInterest) == address(0)) return floor_;
         uint256 scaled = openInterest.openInterestOf(seriesId, epoch) * BOND_MULTIPLE;
         return scaled > floor_ ? scaled : floor_;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            DISPUTE AND RESOLUTION
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Say the published number is wrong, and put up the same bond to say it.
+     *
+     * A symmetric bond is what stops disputing from being free: griefing every
+     * publication would otherwise delay every settlement at no cost. The
+     * disputer is claiming the leaf set at the committed CID, run through the
+     * rules at the committed hash, does not produce the published value — a
+     * claim anyone can check before deciding whether to back it.
+     */
+    function dispute(bytes32 seriesId, uint64 epoch) external payable {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status != Status.Published) revert NotPublished();
+        if (block.timestamp >= e.challengeEnd) revert WindowClosed();
+        if (msg.value < e.bond) revert BondTooSmall(e.bond, msg.value);
+
+        _disputer[seriesId][epoch] = msg.sender;
+        _disputeBond[seriesId][epoch] = msg.value;
+        e.status = Status.Disputed;
+
+        emit Disputed(seriesId, epoch, msg.sender, msg.value);
+    }
+
+    /**
+     * The arbiter decides. For now that is governance — a multisig.
+     *
+     * This is named honestly rather than dressed up. A dispute mechanism with
+     * no resolver is worse than none, because it looks like one; naming a
+     * multisig is a real answer and the upgrade path is an optimistic oracle
+     * with its own dispute market underneath.
+     *
+     * If the publisher was right the disputer's bond goes to them, and the
+     * epoch finalises. If the publisher was wrong the bond goes the other way
+     * and the epoch returns to Open, so a correct value can still be published
+     * before the void window runs out.
+     */
+    function resolve(bytes32 seriesId, uint64 epoch, bool publisherWasRight) external onlyGovernance {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status != Status.Disputed) revert NotDisputed();
+
+        address publisher = e.publisher;
+        address challenger = _disputer[seriesId][epoch];
+        uint256 pot = e.bond + _disputeBond[seriesId][epoch];
+
+        e.bond = 0;
+        _disputeBond[seriesId][epoch] = 0;
+        _disputer[seriesId][epoch] = address(0);
+
+        if (publisherWasRight) {
+            e.status = Status.Finalized;
+            _pay(publisher, pot);
+        } else {
+            // Wipe the value as well as the status. Leaving a disproven number
+            // readable is how a stale one ends up settling something.
+            e.valueBps = 0;
+            e.leavesRoot = bytes32(0);
+            e.leavesCID = bytes32(0);
+            e.publisher = address(0);
+            e.publishedAt = 0;
+            e.challengeEnd = 0;
+            e.status = Status.Open;
+            _pay(challenger, pot);
+        }
+
+        emit Resolved(seriesId, epoch, publisherWasRight, pot);
+    }
+
+    /// @notice No dispute arrived in time, so the value stands and the bond comes back.
+    function finalize(bytes32 seriesId, uint64 epoch) external {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status != Status.Published) revert NotPublished();
+        if (block.timestamp < e.challengeEnd) revert WindowOpen();
+
+        uint256 bond = e.bond;
+        address publisher = e.publisher;
+        e.bond = 0;
+        e.status = Status.Finalized;
+
+        _pay(publisher, bond);
+        emit Finalized(seriesId, epoch, e.valueBps);
+    }
+
+    /**
+     * Nothing was ever agreed, so give the collateral back.
+     *
+     * Callable by anyone, deliberately. If voiding depended on governance then
+     * a governance that stopped answering would leave every market's collateral
+     * stranded, and the whole point of this function is that no such state
+     * exists.
+     *
+     * Reachable from Open, Published or Disputed: an epoch nobody published,
+     * one published too late to finalise, and one stuck behind an arbiter who
+     * never ruled all end the same way.
+     */
+    function voidEpoch(bytes32 seriesId, uint64 epoch) external {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status == Status.None || e.status == Status.Finalized || e.status == Status.Voided) {
+            revert NotVoidable();
+        }
+        if (block.timestamp < e.voidAfter) revert TooEarly();
+
+        // Bonds go back to whoever put them up. Nobody was shown to be wrong.
+        uint256 pubBond = e.bond;
+        address publisher = e.publisher;
+        uint256 disBond = _disputeBond[seriesId][epoch];
+        address challenger = _disputer[seriesId][epoch];
+
+        e.bond = 0;
+        _disputeBond[seriesId][epoch] = 0;
+        e.status = Status.Voided;
+
+        if (pubBond > 0 && publisher != address(0)) _pay(publisher, pubBond);
+        if (disBond > 0 && challenger != address(0)) _pay(challenger, disBond);
+
+        emit Voided(seriesId, epoch);
+    }
+
+    function _pay(address to, uint256 amount) private {
+        if (amount == 0 || to == address(0)) return;
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert PayoutFailed();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                              THE SETTLEMENT READ
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * The only function the vault is allowed to believe.
+     *
+     * Reverts in every state but Finalized. That is the entire guarantee this
+     * contract offers the vault: money cannot move on a value that has not
+     * been through the window, and a value that was disputed and lost is not
+     * readable at all rather than readable-and-stale.
+     */
+    function read(bytes32 seriesId, uint64 epoch) external view returns (int256) {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status != Status.Finalized) revert NotFinalized();
+        return e.valueBps;
+    }
+
+    function isVoided(bytes32 seriesId, uint64 epoch) external view returns (bool) {
+        return _epochs[seriesId][epoch].status == Status.Voided;
     }
 
     /*//////////////////////////////////////////////////////////////
