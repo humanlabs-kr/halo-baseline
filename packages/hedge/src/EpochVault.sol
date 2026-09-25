@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import {HaloIndexOracle, IOpenInterest} from "./HaloIndexOracle.sol";
 import {OutcomeToken} from "./OutcomeToken.sol";
 
 /**
@@ -35,7 +36,7 @@ import {OutcomeToken} from "./OutcomeToken.sol";
  * Gnosis CTF is also where the naming comes from, deliberately, so that anyone
  * who has seen conditional tokens before recognises the shape immediately.
  */
-contract EpochVault {
+contract EpochVault is IOpenInterest {
     using SafeERC20 for IERC20;
 
     /*//////////////////////////////////////////////////////////////
@@ -48,6 +49,8 @@ contract EpochVault {
     error ZeroAmount();
     error ZeroAddress();
     error AlreadySettled();
+    error NotSettled();
+    error NothingToRedeem();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -64,6 +67,9 @@ contract EpochVault {
     );
     event Split(bytes32 indexed marketId, address indexed who, uint256 amount);
     event Merge(bytes32 indexed marketId, address indexed who, uint256 burned, uint256 returned);
+    event Settled(bytes32 indexed marketId, int256 valueBps, uint256 payoutHighWad);
+    event VoidSettled(bytes32 indexed marketId);
+    event Redeemed(bytes32 indexed marketId, address indexed who, uint256 high, uint256 low, uint256 paid);
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -89,8 +95,14 @@ contract EpochVault {
                                  STORAGE
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice One WAD. Payout ratios live in [0, WAD].
+    uint256 internal constant WAD = 1e18;
+
     /// @notice The token every market in this vault is denominated in.
     IERC20 public immutable collateralToken;
+
+    /// @notice Where settlement values come from. Never trusted before finalisation.
+    HaloIndexOracle public immutable oracle;
 
     /// @notice Clone target for outcome tokens. Never initialised itself.
     address public immutable outcomeImplementation;
@@ -103,9 +115,10 @@ contract EpochVault {
                                CONSTRUCTION
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address collateralToken_) {
-        if (collateralToken_ == address(0)) revert ZeroAddress();
+    constructor(address collateralToken_, address oracle_) {
+        if (collateralToken_ == address(0) || oracle_ == address(0)) revert ZeroAddress();
         collateralToken = IERC20(collateralToken_);
+        oracle = HaloIndexOracle(oracle_);
 
         // Outcome tokens carry the collateral's decimals so that one unit of
         // HIGH redeems for at most one unit of collateral. See OutcomeToken.
@@ -194,6 +207,7 @@ contract EpochVault {
         if (minted == 0) revert ZeroAmount();
 
         m.collateral += minted;
+        _openInterest[m.seriesId][m.epoch] += minted;
         OutcomeToken(m.high).mint(msg.sender, minted);
         OutcomeToken(m.low).mint(msg.sender, minted);
 
@@ -221,6 +235,7 @@ contract EpochVault {
         OutcomeToken(m.high).burn(msg.sender, amount);
         OutcomeToken(m.low).burn(msg.sender, amount);
         m.collateral -= amount;
+        _openInterest[m.seriesId][m.epoch] -= amount;
 
         uint256 before = collateralToken.balanceOf(address(this));
         collateralToken.safeTransfer(msg.sender, amount);
@@ -228,6 +243,131 @@ contract EpochVault {
 
         emit Merge(id, msg.sender, amount, returned);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                           SETTLEMENT AND REDEMPTION
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Freeze the payoff ratio against the finalised index.
+     *
+     * Permissionless, because it reads a value that has already survived the
+     * oracle's challenge window — there is nothing left to decide and no
+     * reason to make holders wait on anyone in particular to press it.
+     *
+     *   p = clamp((value - strike) / (cap - strike), 0, 1)
+     *
+     * `oracle.read` reverts unless the epoch is Finalized, so this cannot run
+     * on a value that is merely published, or on one that lost a dispute.
+     */
+    function settle(bytes32 id) external {
+        Market storage m = _markets[id];
+        if (m.high == address(0)) revert NoMarket();
+        if (m.settled || m.voided) revert AlreadySettled();
+
+        int256 value = oracle.read(m.seriesId, m.epoch);
+
+        uint256 p;
+        if (value <= m.strikeBps) {
+            p = 0;
+        } else if (value >= m.capBps) {
+            p = WAD;
+        } else {
+            // Both differences are positive here and cap > strike was enforced
+            // at creation, so neither the cast nor the division can surprise.
+            p = (uint256(value - m.strikeBps) * WAD) / uint256(m.capBps - m.strikeBps);
+        }
+
+        m.payoutHighWad = p;
+        m.settled = true;
+        emit Settled(id, value, p);
+    }
+
+    /**
+     * The epoch was never agreed, so give everything back at even odds.
+     *
+     * Also permissionless, and deliberately so: a void that depended on this
+     * contract's owner would reintroduce the stranded-collateral state the
+     * oracle's void path exists to remove.
+     */
+    function settleVoid(bytes32 id) external {
+        Market storage m = _markets[id];
+        if (m.high == address(0)) revert NoMarket();
+        if (m.settled || m.voided) revert AlreadySettled();
+        if (!oracle.isVoided(m.seriesId, m.epoch)) revert NotSettled();
+
+        m.payoutHighWad = WAD / 2;
+        m.voided = true;
+        m.settled = true;
+        emit VoidSettled(id);
+    }
+
+    /**
+     * Burn what the caller holds and pay what it is worth.
+     *
+     * ROUNDING. A complete set is redeemed at one-for-one before either side
+     * is scaled, which makes redemption exact for anyone who never traded —
+     * they put in N and take out N regardless of where the index landed. Only
+     * the unmatched remainder is multiplied by the ratio, and both directions
+     * round down.
+     *
+     * Rounding both down is what guarantees the last redeemer never reverts.
+     * The tempting alternative — floor one side and hand the other the
+     * remainder — pays out up to one wei more per holder than the market
+     * holds, and the person who finds out is whoever redeems last.
+     *
+     * The cost is at most one wei per side per holder left in the vault. That
+     * is a rounding crumb; a revert is a support ticket.
+     */
+    function redeem(bytes32 id) external returns (uint256 paid) {
+        Market storage m = _markets[id];
+        if (m.high == address(0)) revert NoMarket();
+        if (!m.settled) revert NotSettled();
+
+        OutcomeToken high = OutcomeToken(m.high);
+        OutcomeToken low = OutcomeToken(m.low);
+
+        uint256 h = high.balanceOf(msg.sender);
+        uint256 l = low.balanceOf(msg.sender);
+        if (h == 0 && l == 0) revert NothingToRedeem();
+
+        // A matched pair is worth exactly one unit of collateral whatever the
+        // ratio is, because the two payouts are defined to sum to one.
+        uint256 pair = h < l ? h : l;
+        paid = pair;
+
+        uint256 p = m.payoutHighWad;
+        unchecked {
+            uint256 hRest = h - pair;
+            uint256 lRest = l - pair;
+            if (hRest != 0) paid += (hRest * p) / WAD;
+            if (lRest != 0) paid += (lRest * (WAD - p)) / WAD;
+        }
+
+        if (h != 0) high.burn(msg.sender, h);
+        if (l != 0) low.burn(msg.sender, l);
+        m.collateral -= paid;
+
+        collateralToken.safeTransfer(msg.sender, paid);
+        emit Redeemed(id, msg.sender, h, l, paid);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                              OPEN INTEREST
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * What the oracle sizes a publication bond against.
+     *
+     * Summed across every market on this (series, epoch), because a false
+     * value settles all of them at once and the bond has to exceed what that
+     * is worth in total rather than what one strike is worth.
+     */
+    function openInterestOf(bytes32 seriesId, uint64 epoch) external view returns (uint256) {
+        return _openInterest[seriesId][epoch];
+    }
+
+    mapping(bytes32 => mapping(uint64 => uint256)) internal _openInterest;
 
     /*//////////////////////////////////////////////////////////////
                                   VIEWS

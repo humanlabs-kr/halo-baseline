@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {EpochVault} from "../src/EpochVault.sol";
+import {HaloIndexOracle} from "../src/HaloIndexOracle.sol";
 import {OutcomeToken} from "../src/OutcomeToken.sol";
 import {MockERC20, FeeOnTransferERC20} from "./mocks/MockERC20.sol";
 
@@ -18,6 +19,7 @@ import {MockERC20, FeeOnTransferERC20} from "./mocks/MockERC20.sol";
  */
 contract EpochVaultTest is Test {
     EpochVault internal vault;
+    HaloIndexOracle internal oracle;
     MockERC20 internal usdc;
 
     address internal alice = address(0xA11CE);
@@ -32,7 +34,8 @@ contract EpochVaultTest is Test {
 
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        vault = new EpochVault(address(usdc));
+        oracle = new HaloIndexOracle(address(this));
+        vault = new EpochVault(address(usdc), address(oracle));
         id = vault.createMarket(SERIES, EPOCH, STRIKE, CAP);
 
         usdc.mint(alice, 1_000_000e6);
@@ -174,7 +177,7 @@ contract EpochVaultTest is Test {
      */
     function test_split_withFeeOnTransferCollateral_staysSolvent() public {
         FeeOnTransferERC20 fot = new FeeOnTransferERC20(100); // 1%
-        EpochVault v = new EpochVault(address(fot));
+        EpochVault v = new EpochVault(address(fot), address(oracle));
         bytes32 mid = v.createMarket(SERIES, EPOCH, STRIKE, CAP);
 
         fot.mint(alice, 10_000e6);
@@ -195,7 +198,7 @@ contract EpochVaultTest is Test {
     /// @dev And the fee on the way out is borne by the withdrawer, not the market.
     function test_merge_withFeeOnTransferCollateral_chargesTheWithdrawer() public {
         FeeOnTransferERC20 fot = new FeeOnTransferERC20(100);
-        EpochVault v = new EpochVault(address(fot));
+        EpochVault v = new EpochVault(address(fot), address(oracle));
         bytes32 mid = v.createMarket(SERIES, EPOCH, STRIKE, CAP);
 
         fot.mint(alice, 10_000e6);
