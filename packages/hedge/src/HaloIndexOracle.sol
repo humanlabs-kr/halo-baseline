@@ -172,14 +172,14 @@ contract HaloIndexOracle {
         uint64 epoch,
         bytes32 rulesHash,
         uint64 closesAt,
-        uint64 challengeWindow,
+        uint64 challengeWindow_,
         uint64 voidWindow
     ) external onlyGovernance {
         if (rulesHash == bytes32(0)) revert ZeroRules();
         if (closesAt <= block.timestamp) revert BadWindow();
         // A void window that does not outlast the challenge window would let an
         // epoch be voided while a legitimate dispute is still being resolved.
-        if (voidWindow <= challengeWindow) revert BadWindow();
+        if (voidWindow <= challengeWindow_) revert BadWindow();
 
         Epoch storage e = _epochs[seriesId][epoch];
         if (e.status != Status.None) revert EpochExists();
@@ -191,7 +191,7 @@ contract HaloIndexOracle {
 
         // Stored on the record rather than as a constant so a series with a
         // slow statistics cycle can be given a longer window than a fast one.
-        _challengeWindow[seriesId][epoch] = challengeWindow;
+        _challengeWindow[seriesId][epoch] = challengeWindow_;
 
         emit EpochOpened(seriesId, epoch, rulesHash, closesAt, e.voidAfter);
     }
