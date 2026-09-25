@@ -261,4 +261,76 @@ contract SettlementTest is Test {
         }
         assertLe(vault.collateralOf(id), usdc.balanceOf(address(vault)));
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                   FUZZ
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * The solvency property, over arbitrary strikes, caps, values and holdings.
+     *
+     * Two holders, with the outcome sides deliberately crossed so that neither
+     * of them holds a matched pair and the exact-pair shortcut never applies.
+     * Whatever the index does, the two payouts together must not exceed what
+     * the vault holds — and both redemptions must succeed.
+     */
+    function testFuzz_settlementNeverPaysOutMoreThanItHolds(
+        int64 strike,
+        uint64 spread,
+        int64 value,
+        uint96 depositA,
+        uint96 depositB
+    ) public {
+        strike = int64(bound(strike, -5_000, 50_000));
+        // A spread of at least one basis point; cap > strike is enforced on
+        // creation and a zero spread would be a divide by zero at settlement.
+        uint256 width = bound(spread, 1, 50_000);
+        int256 cap = int256(strike) + int256(width);
+        value = int64(bound(value, -20_000, 100_000));
+
+        depositA = uint96(bound(depositA, 1, 1_000_000e6));
+        depositB = uint96(bound(depositB, 1, 1_000_000e6));
+
+        bytes32 fid = vault.createMarket(SERIES, EPOCH, strike, cap);
+
+        vm.prank(alice);
+        vault.split(fid, depositA);
+        vm.prank(bob);
+        vault.split(fid, depositB);
+
+        // Cross the holdings: alice ends up long HIGH only, bob long LOW only.
+        (address high, address low) = vault.outcomes(fid);
+        vm.prank(alice);
+        OutcomeToken(low).transfer(bob, depositA);
+        vm.prank(bob);
+        OutcomeToken(high).transfer(alice, depositB);
+
+        _settleAt(value);
+        vault.settle(fid);
+
+        uint256 held = vault.collateralOf(fid);
+        vm.prank(alice);
+        uint256 a = vault.redeem(fid);
+        vm.prank(bob);
+        uint256 b = vault.redeem(fid);
+
+        assertLe(a + b, held, "paid out more than the market held");
+        assertEq(OutcomeToken(high).totalSupply(), 0, "HIGH not fully burned");
+        assertEq(OutcomeToken(low).totalSupply(), 0, "LOW not fully burned");
+        // Dust is bounded: at most one wei per side per holder.
+        assertGe(a + b + 4, held, "lost more than rounding can explain");
+    }
+
+    /// @dev Whatever the index does, a complete set is worth exactly its size.
+    function testFuzz_completeSetIsAlwaysExact(int64 value, uint96 deposit) public {
+        value = int64(bound(value, -20_000, 100_000));
+        deposit = uint96(bound(deposit, 1, 1_000_000e6));
+
+        vm.prank(alice);
+        vault.split(id, deposit);
+        _settleAt(value);
+
+        vm.prank(alice);
+        assertEq(vault.redeem(id), deposit);
+    }
 }
