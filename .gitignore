@@ -42,3 +42,6 @@ packages/onchain/deployments/*.json
 
 # Local dev caches / one-off data dumps
 tmp/
+packages/hedge/out/
+packages/hedge/cache/
+packages/hedge/lib/

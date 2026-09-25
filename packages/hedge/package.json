@@ -1,0 +1,25 @@
+{
+  "name": "@halo/hedge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "deploy": "tsx scripts/deploy.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "viem": "^2.56.8"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24.13.5",
+    "eslint": "^9.39.5",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}
