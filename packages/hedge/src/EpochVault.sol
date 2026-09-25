@@ -51,6 +51,7 @@ contract EpochVault is IOpenInterest {
     error AlreadySettled();
     error NotSettled();
     error NothingToRedeem();
+    error Frozen();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -176,6 +177,42 @@ contract EpochVault is IOpenInterest {
     }
 
     /*//////////////////////////////////////////////////////////////
+                                  THE FREEZE
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Whether this market is inside the window where nobody may reprice it.
+     *
+     * The window opens when the epoch closes — not when a value is published.
+     * By publication time whoever computed the index has known it for hours,
+     * and that gap is exactly when they can take the other side of a book
+     * that cannot see what they see.
+     *
+     * It closes when the oracle reaches a terminal state, whether that is a
+     * finalised value or a void. Until then the position set is fixed.
+     *
+     * WHY THE VAULT AND NOT JUST THE POOL. Freezing swaps alone moves the
+     * front-run rather than stopping it: anyone who can still mint a complete
+     * set can take the side they want at par and redeem into the answer. The
+     * pool hook and this check are the same rule applied at both doors.
+     */
+    function isFrozen(bytes32 id) public view returns (bool) {
+        Market storage m = _markets[id];
+        if (m.high == address(0)) return false;
+
+        uint64 freezeAt = oracle.freezeAt(m.seriesId, m.epoch);
+        if (freezeAt == 0 || block.timestamp < freezeAt) return false;
+
+        HaloIndexOracle.Status s = oracle.statusOf(m.seriesId, m.epoch);
+        return s != HaloIndexOracle.Status.Finalized && s != HaloIndexOracle.Status.Voided;
+    }
+
+    modifier notFrozen(bytes32 id) {
+        if (isFrozen(id)) revert Frozen();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                 SPLIT / MERGE
     //////////////////////////////////////////////////////////////*/
 
@@ -195,7 +232,7 @@ contract EpochVault is IOpenInterest {
      * true by construction instead of true by assumption about a token we do
      * not control.
      */
-    function split(bytes32 id, uint256 amount) external returns (uint256 minted) {
+    function split(bytes32 id, uint256 amount) external notFrozen(id) returns (uint256 minted) {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();
@@ -226,7 +263,7 @@ contract EpochVault is IOpenInterest {
      * `amount` against a short receipt is correct: the shortfall is the token's
      * fee, not collateral that belongs to anyone still in the market.
      */
-    function merge(bytes32 id, uint256 amount) external returns (uint256 returned) {
+    function merge(bytes32 id, uint256 amount) external notFrozen(id) returns (uint256 returned) {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();

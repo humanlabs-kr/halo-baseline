@@ -263,6 +263,67 @@ contract SettlementTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
+                                  THE FREEZE
+    //////////////////////////////////////////////////////////////*/
+
+    function test_freeze_opensAtEpochCloseNotAtPublication() public {
+        assertFalse(vault.isFrozen(id));
+        vm.warp(closesAt);
+        assertTrue(vault.isFrozen(id), "not frozen at close");
+    }
+
+    /**
+     * Freezing swaps alone would move the front-run to the vault door.
+     *
+     * Anyone who can still mint a complete set during the window can take the
+     * side they want at par and redeem straight into the answer, which is the
+     * same trade the pool freeze exists to prevent.
+     */
+    function test_freeze_blocksSplit() public {
+        vm.warp(closesAt);
+        vm.prank(alice);
+        vm.expectRevert(EpochVault.Frozen.selector);
+        vault.split(id, 1_000e6);
+    }
+
+    function test_freeze_blocksMerge() public {
+        vm.prank(alice);
+        vault.split(id, 1_000e6);
+        vm.warp(closesAt);
+        vm.prank(alice);
+        vm.expectRevert(EpochVault.Frozen.selector);
+        vault.merge(id, 1_000e6);
+    }
+
+    /// @dev Publication is not the end of it — the challenge window is still live.
+    function test_freeze_staysClosedWhilePublishedButNotFinal() public {
+        vm.warp(closesAt + 1);
+        vm.prank(publisher);
+        oracle.publish{value: 1 wei}(SERIES, EPOCH, 1200, keccak256("root"), keccak256("cid"));
+        assertTrue(vault.isFrozen(id), "unfroze on publication");
+    }
+
+    function test_freeze_liftsOnFinalisation() public {
+        _settleAt(1000);
+        assertFalse(vault.isFrozen(id), "still frozen after finalisation");
+    }
+
+    function test_freeze_liftsOnVoid() public {
+        vm.warp(closesAt + VOID + 1);
+        oracle.voidEpoch(SERIES, EPOCH);
+        assertFalse(vault.isFrozen(id), "still frozen after void");
+    }
+
+    /// @dev Redemption is never frozen. Getting money out is not a reprice.
+    function test_freeze_doesNotBlockRedemption() public {
+        vm.prank(alice);
+        vault.split(id, 1_000e6);
+        _settleAt(300);
+        vm.prank(alice);
+        assertEq(vault.redeem(id), 1_000e6);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                    VOID
     //////////////////////////////////////////////////////////////*/
 
