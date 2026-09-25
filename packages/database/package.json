@@ -1,0 +1,33 @@
+{
+  "name": "@halo/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "db:generate": "dotenv -e .env -- drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "dotenv -e .env -- drizzle-kit migrate --config drizzle.config.ts",
+    "db:push": "dotenv -e .env -- drizzle-kit push --config drizzle.config.ts --force",
+    "db:studio": "dotenv -e .env -- drizzle-kit studio --config drizzle.config.ts",
+    "db:drop": "dotenv -e .env -- drizzle-kit drop --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.43.1",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24.13.5",
+    "dotenv-cli": "^10.0.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3"
+  }
+}

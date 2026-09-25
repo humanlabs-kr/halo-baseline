@@ -1,0 +1,53 @@
+name: CI
+
+# Quality gate for every pull request. Deployment lives in deploy.yaml and runs
+# only after main/release — by then a regression has already been merged, so the
+# checks that matter have to run here.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint / Typecheck / Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # packages/onchain runs `forge test` as its turbo `test` task. Without
+      # this the whole test pipeline fails on a runner that has no Foundry.
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      # Shared zod schemas are consumed from dist/, so every downstream typecheck
+      # fails on a clean checkout unless this runs first.
+      - name: Build shared packages
+        run: pnpm --filter @halo/contracts build
+
+      - name: Lint
+        run: pnpm exec turbo run lint
+
+      - name: Typecheck
+        run: pnpm exec turbo run typecheck
+
+      # tsc cannot see values — locale key drift and schema/constant mismatches
+      # are only caught here.
+      - name: Test
+        run: pnpm exec turbo run test

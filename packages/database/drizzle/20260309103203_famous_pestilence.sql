@@ -1,0 +1,1 @@
+ALTER TABLE "receipto"."humanfi_swaps" ADD COLUMN "gas_fee_paid_with" varchar(32);

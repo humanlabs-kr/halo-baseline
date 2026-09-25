@@ -1,0 +1,11 @@
+{
+  "extends": "@repo/typescript-config/workers.json",
+  "compilerOptions": {
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "workers/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "worker-configuration.d.ts"]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "halo-miniapp",
+  "compatibility_date": "2025-05-23",
+
+  // account_id is deliberately absent — wrangler reads CLOUDFLARE_ACCOUNT_ID
+  // from the environment. Keeping it out of a public repo costs nothing and
+  // removes one identifier from the blast radius of a leaked API token.
+
+  // Static SPA: no Worker script. Cloudflare serves the Vite output directly.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": false
+  },
+  "workers_dev": false,
+
+  // One Worker, three custom domains. The app is built once and resolves its
+  // platform at runtime from the hostname — see `src/lib/platform.ts` and
+  // `platformFromHostname` in `@halo/contracts`, which maps these exact
+  // prefixes. Renaming a domain here without updating that map produces a mini
+  // app that cannot tell which chain it is on.
+  //
+  // The `miniapp.` prefix (no chain) is World: it shipped first and took the
+  // bare name before there was anything to disambiguate.
+  "env": {
+    "staging": {
+      "name": "receipto-miniapp-staging",
+      "routes": [
+        { "pattern": "miniapp.receipto.seriesc.dev", "zone_name": "seriesc.dev", "custom_domain": true },
+        { "pattern": "celo-miniapp.receipto.seriesc.dev", "zone_name": "seriesc.dev", "custom_domain": true },
+        { "pattern": "kaia-miniapp.receipto.seriesc.dev", "zone_name": "seriesc.dev", "custom_domain": true }
+      ],
+      "vars": {
+        "VITE_API_URL": "https://api.receipto.seriesc.dev",
+        "VITE_PROJECT_ENV": "staging"
+      }
+    },
+    "production": {
+      "name": "receipto-miniapp-prod",
+      "routes": [
+        { "pattern": "miniapp.halo.humanlabs.world", "zone_name": "humanlabs.world", "custom_domain": true },
+        { "pattern": "celo-miniapp.halo.humanlabs.world", "zone_name": "humanlabs.world", "custom_domain": true },
+        { "pattern": "kaia-miniapp.halo.humanlabs.world", "zone_name": "humanlabs.world", "custom_domain": true }
+      ],
+      "vars": {
+        "VITE_API_URL": "https://api.halo.humanlabs.world",
+        "VITE_PROJECT_ENV": "production"
+      }
+    }
+  }
+}

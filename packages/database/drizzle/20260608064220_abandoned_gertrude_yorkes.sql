@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "receipts_analysis_completed_at_id_idx" ON "receipto"."receipts" USING btree ("analysis_completed_at" DESC NULLS LAST,"id");

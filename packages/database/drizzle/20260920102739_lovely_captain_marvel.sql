@@ -1,0 +1,1 @@
+ALTER TABLE "receipto"."receipts" ADD COLUMN "rejection_reason" text;

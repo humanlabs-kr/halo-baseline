@@ -1,0 +1,40 @@
+{
+  "name": "halo",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "concurrently --names \"apps,tunnel\" --prefix-colors \"cyan,magenta\" --kill-others \"turbo run dev\" \"node scripts/dev-tunnel.mjs\"",
+    "dev:apps": "turbo run dev",
+    "dev:tunnel": "node scripts/dev-tunnel.mjs",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "prepare": "husky",
+    "db:generate": "pnpm --filter @halo/database db:generate",
+    "db:migrate": "pnpm --filter @halo/database db:migrate",
+    "db:push": "pnpm --filter @halo/database db:push",
+    "db:studio": "pnpm --filter @halo/database db:studio",
+    "db:drop": "pnpm --filter @halo/database db:drop"
+  },
+  "devDependencies": {
+    "cloudflared": "^0.7.3",
+    "concurrently": "^9.2.4",
+    "dotenv": "^16.6.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "turbo": "^2.10.13"
+  },
+  "lint-staged": {
+    "apps/api/**/*.{ts,tsx,js,jsx}": "pnpm --filter @halo/api exec eslint --fix",
+    "apps/miniapp/**/*.{ts,tsx,js,jsx}": "pnpm --filter @halo/miniapp exec eslint --fix",
+    "packages/contracts/**/*.{ts,tsx}": "pnpm --filter @halo/contracts exec eslint --fix",
+    "packages/database/**/*.{ts,tsx}": "pnpm --filter @halo/database exec eslint --fix",
+    "packages/onchain/**/*.{ts,tsx}": "pnpm --filter @halo/onchain exec eslint --fix"
+  },
+  "pnpm": {
+    "overrides": {
+      "@reown/appkit-wallet>zod": "3.25.76"
+    }
+  }
+}

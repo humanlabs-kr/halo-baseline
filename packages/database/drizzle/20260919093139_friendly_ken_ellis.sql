@@ -1,0 +1,15 @@
+-- Widens total_amount from numeric(10, 2) to numeric(15, 2).
+--
+-- The old ceiling was 99,999,999.99 and high-denomination currencies were
+-- already pressed against it — TZS reached 89,034,580 and IDR 83,250,000, at
+-- 89% and 83% of the limit. Crossing it raised `numeric field overflow` in the
+-- final transaction, after the vision model had already read the receipt, so
+-- the write failed and the receipt never settled.
+--
+-- Already applied to production ahead of this release. It is safe to re-run:
+-- PostgreSQL's numeric_transform skips the table rewrite when the scale is
+-- unchanged and the precision only grows, so this alters the catalog and
+-- nothing else. Verified on production by comparing pg_relation_filenode before
+-- and after — 17507 both times, on 1.17M rows, in under a second. A rewrite
+-- would have held an ACCESS EXCLUSIVE lock over the whole table instead.
+ALTER TABLE "receipto"."receipts" ALTER COLUMN "total_amount" SET DATA TYPE numeric(15, 2);

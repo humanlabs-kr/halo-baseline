@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+* {
+  font-family: var(--font-inter);
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  background-color: white;
+}
+
+@theme inline {
+  --font-inter: "Inter", sans-serif;
+}
+
+@layer utilities {
+  /* A reading head crossing the page. Covers the queue wait with the machine. */
+  @keyframes scan-sweep {
+    0% {
+      transform: translateY(-110%);
+    }
+    100% {
+      transform: translateY(560%);
+    }
+  }
+
+  .animate-sweep {
+    animation: scan-sweep 1.9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  /*
+   * The same reading head, on the onboarding illustration, travelling both
+   * ways over a receipt that is standing still. The scan screen's sweep only
+   * goes one way because there the paper is real and the wait ends; here it
+   * is a drawing of the thing the next tap will do.
+   */
+  @keyframes scan-travel {
+    0%,
+    100% {
+      transform: translateY(-1200%);
+    }
+    50% {
+      transform: translateY(1200%);
+    }
+  }
+
+  .animate-scanline {
+    animation: scan-travel 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  /* A panel arriving. Used where a tap swaps one whole block for another. */
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-rise {
+    animation: rise 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-sweep,
+    .animate-scanline,
+    .animate-rise {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .pressed:active {
+    transform: scale(0.96);
+    opacity: 0.7;
+    transition:
+      transform 0.1s,
+      opacity 0.1s;
+  }
+}

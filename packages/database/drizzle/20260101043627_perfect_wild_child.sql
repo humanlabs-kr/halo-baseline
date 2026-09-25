@@ -1,0 +1,1 @@
+ALTER TABLE "receipto"."raffle_pools" DROP CONSTRAINT "unique_raffle_pools_utc_date_amount_in_usdc";

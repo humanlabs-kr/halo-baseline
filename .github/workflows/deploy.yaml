@@ -1,0 +1,306 @@
+name: Deploy
+
+# main push  → staging
+# release    → production
+# Only the apps whose files changed are deployed.
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-${{ github.event_name == 'release' && 'production' || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  DEPLOY_ENV: ${{ github.event_name == 'release' && 'production' || 'staging' }}
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      api: ${{ steps.markers.outputs.all == 'true' || steps.prev-release.outputs.deploy_all == 'true' || steps.last-success.outputs.deploy_all == 'true' || steps.filter.outputs.api }}
+      miniapp: ${{ steps.markers.outputs.all == 'true' || steps.prev-release.outputs.deploy_all == 'true' || steps.last-success.outputs.deploy_all == 'true' || steps.filter.outputs.miniapp }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find previous release tag
+        id: prev-release
+        if: github.event_name == 'release'
+        run: |
+          CURRENT_TAG="${{ github.event.release.tag_name }}"
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "deploy_all=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=$PREV_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Parse deploy markers in commit message
+        id: markers
+        if: github.event_name == 'push'
+        run: |
+          MSG=$(git log -1 --format=%B)
+          if echo "$MSG" | grep -q 'DEPLOY_ALL'; then echo "all=true" >> "$GITHUB_OUTPUT"; fi
+
+      # Diffing against the previous commit is wrong when a run failed or was
+      # skipped — the change would never be redeployed. Diff against the last
+      # commit we actually shipped instead.
+      - name: Find last successful deploy commit
+        id: last-success
+        if: github.event_name == 'push' && steps.markers.outputs.all != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=1&event=push" \
+            --jq '.workflow_runs[0].head_sha // empty')
+          if [ -n "$SHA" ] && git cat-file -e "$SHA" 2>/dev/null; then
+            echo "base=$SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_all=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check changed paths
+        if: steps.markers.outputs.all != 'true' && steps.prev-release.outputs.deploy_all != 'true' && steps.last-success.outputs.deploy_all != 'true'
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ steps.prev-release.outputs.base || steps.last-success.outputs.base || '' }}
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'packages/**'
+              - '.github/workflows/deploy.yaml'
+            miniapp:
+              - 'apps/miniapp/**'
+              - 'packages/**'
+              - '.github/workflows/deploy.yaml'
+
+  prepare:
+    name: Prepare (${{ github.event_name == 'release' && 'production' || 'staging' }})
+    needs: changes
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.miniapp == 'true'
+    runs-on: ubuntu-latest
+    # Binds to a GitHub Environment so `secrets.*` resolve to that
+    # environment's values. Without this both stages read the same secrets and
+    # a staging deploy would overwrite production's.
+    environment: ${{ github.event_name == 'release' && 'production' || 'staging' }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # packages/onchain runs `forge test` as its turbo `test` task. Without
+      # this the whole test pipeline fails on a runner that has no Foundry.
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Restore turbo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .turbo
+            **/*.tsbuildinfo
+            packages/contracts/dist
+          key: turbo-v1-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-v1-${{ runner.os }}-
+
+      - name: Build shared packages
+        run: pnpm --filter @halo/contracts build
+
+      - name: Typecheck
+        run: pnpm exec turbo run typecheck
+
+      # Runs before db:migrate on purpose: a failure here stops the pipeline
+      # without having touched the schema.
+      - name: Test
+        run: pnpm exec turbo run test
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+
+      # Secrets live only in GitHub Environment secrets and on Cloudflare —
+      # never in the repository, not even encrypted. A committed ciphertext is
+      # an offline cracking target that no rotation can recall.
+      #
+      # Non-secret configuration is not here: it is in wrangler.jsonc `vars`
+      # (Worker) and apps/miniapp/.env.<env> (browser bundle).
+      #
+      # An unset secret is skipped rather than written as an empty string,
+      # because an empty JWT_SECRET fails open in ways an absent one does not.
+      - name: Sync API secrets to Cloudflare
+        working-directory: apps/api
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SESSION_HMAC_SECRET: ${{ secrets.SESSION_HMAC_SECRET }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SERVER_SIGNER_PRIVATE_KEY: ${{ secrets.SERVER_SIGNER_PRIVATE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          MAILEROO_API_KEY: ${{ secrets.MAILEROO_API_KEY }}
+          # Provider URLs carry an API key in the path, so they are secrets too.
+          CELO_RPC_URL: ${{ secrets.CELO_RPC_URL }}
+          WORLDCHAIN_RPC_URL: ${{ secrets.WORLDCHAIN_RPC_URL }}
+          KAIA_RPC_URL: ${{ secrets.KAIA_RPC_URL }}
+          DROP_API_URL: ${{ secrets.DROP_API_URL }}
+          DROP_ID: ${{ secrets.DROP_ID }}
+        run: |
+          set -euo pipefail
+          for key in JWT_SECRET SESSION_HMAC_SECRET ADMIN_API_TOKEN OPENROUTER_API_KEY \
+                     SERVER_SIGNER_PRIVATE_KEY TURNSTILE_SECRET_KEY MAILEROO_API_KEY \
+                     CELO_RPC_URL WORLDCHAIN_RPC_URL KAIA_RPC_URL DROP_API_URL DROP_ID; do
+            value="${!key-}"
+            if [ -z "$value" ]; then
+              echo "· $key not set for ${{ env.DEPLOY_ENV }} — leaving as is"
+              continue
+            fi
+            printf '%s' "$value" | pnpm exec wrangler secret put "$key" --env "${{ env.DEPLOY_ENV }}"
+          done
+
+      - name: Package workspace
+        run: tar --exclude='.git' --exclude='node_modules' -czf /tmp/workspace.tar.gz .
+
+      - name: Upload workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace
+          path: /tmp/workspace.tar.gz
+          retention-days: 1
+
+  deploy:
+    name: Deploy ${{ matrix.app }}
+    needs: [changes, prepare]
+    if: needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'release' && 'production' || 'staging' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: api
+            changed: ${{ needs.changes.outputs.api }}
+          - app: miniapp
+            changed: ${{ needs.changes.outputs.miniapp }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Skip unchanged app
+        if: matrix.changed != 'true'
+        run: echo "No changes for ${{ matrix.app }} — skipping."
+
+      - name: Download workspace
+        if: matrix.changed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace
+
+      - name: Extract workspace
+        if: matrix.changed == 'true'
+        run: tar -xzf workspace.tar.gz && rm workspace.tar.gz
+
+      - name: Setup pnpm
+        if: matrix.changed == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        if: matrix.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: matrix.changed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Vite inlines any `VITE_`-prefixed variable from the environment, which
+      # is how a keyed RPC endpoint reaches the browser bundle without being
+      # committed. `apps/miniapp/.env.<env>` leaves these blank on purpose: a
+      # provider URL carries its key in the path, and this repository is
+      # public.
+      #
+      # Unset is a supported state, not a misconfiguration — viem then falls
+      # back to each chain's default endpoint, which is what ships today. Set
+      # the secret only where the shared endpoint is not good enough; at the
+      # time of writing that is Worldchain, whose viem default is Alchemy's
+      # shared `/public` host.
+      #
+      # These must be separate from the API's `*_RPC_URL` secrets. Anything
+      # passed here is compiled into JavaScript every user downloads, so
+      # reusing a server-side key would publish it.
+      - name: Deploy
+        if: matrix.changed == 'true'
+        env:
+          VITE_CELO_RPC_URL: ${{ secrets.VITE_CELO_RPC_URL }}
+          VITE_WORLDCHAIN_RPC_URL: ${{ secrets.VITE_WORLDCHAIN_RPC_URL }}
+          VITE_KAIA_RPC_URL: ${{ secrets.VITE_KAIA_RPC_URL }}
+        run: pnpm --filter @halo/${{ matrix.app }} deploy:${{ env.DEPLOY_ENV }}
+
+  create-release:
+    name: Create production release draft
+    needs: [changes, deploy]
+    runs-on: ubuntu-latest
+    if: ${{ always() && !contains(join(needs.*.result, ','), 'fail') && github.event_name == 'push' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Create release tag
+        id: tag
+        run: echo "tag_name=r-$(printf %06d $GITHUB_RUN_NUMBER)" >> "$GITHUB_OUTPUT"
+
+      # `contains()` in a workflow expression is a case-insensitive substring
+      # test, so the previous check matched any commit whose message happened
+      # to contain the letters "checked" — including a body sentence reading
+      # "we have not checked yet". That published a production release from an
+      # ordinary bug-fix commit. It did not deploy, only because a release
+      # created with GITHUB_TOKEN does not trigger another workflow, so the
+      # repository was left claiming a Latest release that never shipped.
+      #
+      # `grep -qx` requires the marker alone on its own line, case-sensitive.
+      # No sentence can trip it by accident.
+      - name: Look for the release marker
+        id: marker
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if printf '%s' "$MESSAGE" | grep -qx 'RELEASE'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: Release ${{ steps.tag.outputs.tag_name }}
+          generate_release_notes: true
+          # Publishing the release is what triggers the production deploy, so
+          # it stays a draft until a human puts `RELEASE` on a line of its own.
+          draft: ${{ steps.marker.outputs.publish != 'true' }}

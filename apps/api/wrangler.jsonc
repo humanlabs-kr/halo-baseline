@@ -1,0 +1,194 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "halo-api",
+  "main": "./src/index.ts",
+  "compatibility_date": "2025-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // account_id is deliberately absent — wrangler reads CLOUDFLARE_ACCOUNT_ID
+  // from the environment. Keeping it out of a public repo costs nothing.
+  //
+  // Nothing in this file is a credential. Hyperdrive ids and bucket names are
+  // identifiers: the database password lives inside the Hyperdrive config on
+  // Cloudflare's side, and reaching any of it still requires an API token.
+  // Secrets are never written here. They are set on Cloudflare with
+  // `wrangler secret put` — see README "Secrets" and the sync step in
+  // `.github/workflows/deploy.yaml`.
+
+  "observability": {
+    "enabled": false
+  },
+
+  // Local defaults. `staging` and `production` below override them.
+  "vars": {
+    "PROJECT_ENV": "local",
+    "PREDEFINED_CORS_ORIGINS": "http://localhost:8000",
+    "CORS_ORIGIN_BASE_DOMAINS": "",
+    // Extra hostnames a SIWE login message may claim to come from, comma
+    // separated. The deployed hostnames are built into the verifier
+    // (src/lib/siwe.ts); this only exists for the per-developer Cloudflare
+    // tunnel hostname, which is configured in the dashboard. Overridden by
+    // .dev.vars locally, and empty in both deployed environments below —
+    // anything put there widens which origins can mint a session, which is
+    // why it is reviewable config and not a secret.
+    "LOCAL_ALLOWED_DOMAINS": ""
+  },
+
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      // `wrangler dev` ignores this id and uses localConnectionString.
+      "id": "local",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "RECEIPT_BUCKET",
+      "bucket_name": "receipto"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      {
+        "binding": "RECEIPT_ANALYSIS_QUEUE",
+        "queue": "receipto-dev-receipt-analysis"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "receipto-dev-receipt-analysis",
+        // One receipt per invocation: the vision call dominates the runtime, so
+        // batching buys nothing and one unreadable image would fail the batch.
+        "max_batch_size": 1,
+        "max_batch_timeout": 0,
+        "max_concurrency": 30,
+        "retry_delay": 10000,
+        "max_retries": 3
+      }
+    ]
+  },
+
+  "triggers": {
+    // Must match the keys in `src/scheduled/index.ts` character for character —
+    // Cloudflare passes the expression through verbatim and an expression with
+    // no matching key registers nothing.
+    "crons": ["0 0 * * *", "*/15 * * * *"]
+  },
+
+  "env": {
+    "staging": {
+      "name": "receipto-api-staging",
+      "route": {
+        "pattern": "api.receipto.seriesc.dev",
+        "zone_name": "seriesc.dev",
+        "custom_domain": true
+      },
+      "observability": { "enabled": true },
+      "placement": { "mode": "smart" },
+      // Non-secret configuration. Secrets are set with `wrangler secret put`
+      // and never appear in this file — see README "Secrets".
+      "vars": {
+        "PROJECT_ENV": "staging",
+        "LOCAL_ALLOWED_DOMAINS": "",
+        "API_URL": "https://api.receipto.seriesc.dev",
+        "API_COOKIE_DOMAIN": "api.receipto.seriesc.dev",
+        "PREDEFINED_CORS_ORIGINS": "",
+        "CORS_ORIGIN_BASE_DOMAINS": "receipto.seriesc.dev",
+        "WORLD_APP_ID": "app_3050e705a2c22ba9480724b860f0fd21",
+        "POINT_CLAIM_CONTRACT_CELO": "0x40ca1Bc3AE71f77dB8b483D1b5d51A9978E51A49",
+        "EMAIL_FROM_ADDRESS": "no-reply@mail.humanlabs.world"
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE",
+          "id": "f7cffaabeb1e43588863d84548939423"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "RECEIPT_BUCKET",
+          "bucket_name": "receipto"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "RECEIPT_ANALYSIS_QUEUE",
+            "queue": "receipto-staging-receipt-analysis"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "receipto-staging-receipt-analysis",
+            "max_batch_size": 1,
+            "max_batch_timeout": 0,
+            "max_concurrency": 30,
+            "retry_delay": 10000,
+            "max_retries": 3
+          }
+        ]
+      },
+      "triggers": {
+        "crons": ["0 0 * * *", "*/15 * * * *"]
+      }
+    },
+
+    "production": {
+      "name": "receipto-api-prod",
+      "route": {
+        "pattern": "api.halo.humanlabs.world",
+        "zone_name": "humanlabs.world",
+        "custom_domain": true
+      },
+      "observability": { "enabled": true },
+      "placement": { "mode": "smart" },
+      "vars": {
+        "PROJECT_ENV": "production",
+        "LOCAL_ALLOWED_DOMAINS": "",
+        "API_URL": "https://api.halo.humanlabs.world",
+        "API_COOKIE_DOMAIN": "api.halo.humanlabs.world",
+        "PREDEFINED_CORS_ORIGINS": "",
+        "CORS_ORIGIN_BASE_DOMAINS": "halo.humanlabs.world",
+        "WORLD_APP_ID": "app_c35ac7dbe6bfaee48efa9496895a49a7",
+        "POINT_CLAIM_CONTRACT_CELO": "0xc936feA52d19B5E4c213E0EF08f4CE64e145b07d",
+        "EMAIL_FROM_ADDRESS": "no-reply@mail.humanlabs.world"
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE",
+          "id": "2cfcadaf728446aaaf350df0ef02705c"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "RECEIPT_BUCKET",
+          "bucket_name": "receipto"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "RECEIPT_ANALYSIS_QUEUE",
+            "queue": "receipto-receipt-analysis"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "receipto-receipt-analysis",
+            "max_batch_size": 1,
+            "max_batch_timeout": 0,
+            "max_concurrency": 30,
+            "retry_delay": 10000,
+            "max_retries": 3
+          }
+        ]
+      },
+      "triggers": {
+        "crons": ["0 0 * * *", "*/15 * * * *"]
+      }
+    }
+  }
+}

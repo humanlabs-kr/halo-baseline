@@ -1,0 +1,44 @@
+# Node
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ── Env ──────────────────────────────────────────────────────────────────────
+# Deny first, then allow back only files that contain nothing private. A new
+# .env.<something> is ignored by default, which is the behaviour we want when
+# someone adds one in a hurry.
+.env
+.env.*
+.dev.vars
+
+# The key manifest. Names only, no values.
+!.env.example
+
+# Mini app build-time values. Every VITE_ variable is compiled into the browser
+# bundle, so these are public by construction — committing them is what makes a
+# clean checkout buildable. Server secrets never appear here; they are set on
+# Cloudflare with `wrangler secret put` and never touch this repo.
+!apps/miniapp/.env.staging
+!apps/miniapp/.env.production
+
+# Cloudflare
+.wrangler
+
+# Foundry
+packages/onchain/out/
+packages/onchain/cache/
+packages/onchain/broadcast/
+packages/onchain/deployments/*.json
+
+# Local dev caches / one-off data dumps
+tmp/

@@ -1,0 +1,30 @@
+pnpm lint-staged
+
+# Schema drift guard.
+#
+# Changing a Drizzle table without generating the matching migration deploys a
+# schema the database does not have, and every query against that table starts
+# failing in production. Running generate on each commit makes the omission
+# impossible to miss.
+echo ""
+echo "→ Checking schema/migration sync (drizzle-kit generate)…"
+pnpm db:generate
+
+# Only look at what `db:generate` just produced — untracked files, and tracked
+# files it modified in the working tree. Plain `git status --porcelain` also
+# lists everything already staged, which turns any legitimate commit that
+# touches migrations into a false positive.
+#
+# Porcelain columns are XY: X is the index, Y is the working tree. `??` is
+# untracked; a non-space Y is an unstaged edit.
+DRIFT=$(git status --porcelain --untracked-files=all packages/database/drizzle/ \
+  | grep -E '^(\?\?|.[^ ])' || true)
+
+if [ -n "$DRIFT" ]; then
+  echo ""
+  echo "❌ Schema drift — a migration is missing for your schema change:"
+  echo "$DRIFT"
+  echo ""
+  echo "→ Stage the files above with 'git add', or revert the schema change."
+  exit 1
+fi

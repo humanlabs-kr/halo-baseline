@@ -1,0 +1,1 @@
+ALTER TABLE "receipto"."email_campaigns" ADD COLUMN "target_emails" text;
