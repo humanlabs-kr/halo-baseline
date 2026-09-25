@@ -31,6 +31,7 @@ contract OutcomeToken {
     //////////////////////////////////////////////////////////////*/
 
     error AlreadyInitialized();
+    error ZeroVault();
     error NotVault();
     error InsufficientBalance();
     error InsufficientAllowance();
@@ -74,6 +75,10 @@ contract OutcomeToken {
         external
     {
         if (vault != address(0)) revert AlreadyInitialized();
+        // Zero would leave the guard above unset and the clone re-initialisable
+        // by anyone. The guard and the field being the same slot is what makes
+        // this check load-bearing rather than decorative.
+        if (vault_ == address(0)) revert ZeroVault();
         vault = vault_;
         name = name_;
         symbol = symbol_;
