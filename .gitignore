@@ -44,4 +44,3 @@ packages/onchain/deployments/*.json
 tmp/
 packages/hedge/out/
 packages/hedge/cache/
-packages/hedge/lib/

@@ -35,6 +35,14 @@ forge install Uniswap/v4-core --no-git
 forge install Uniswap/v4-periphery --no-git
 ```
 
+## Remappings
+
+`remappings.txt` is pinned explicitly rather than left to auto-detection.
+v4-periphery vendors its own copy of v4-core, and if `v4-core/` resolves to
+that copy you end up with two `PoolManager` types that are not the same type —
+an error that surfaces a long way from its cause. Every mapping points at the
+single top-level `lib/v4-core`.
+
 ## Build and test
 
 ```bash
