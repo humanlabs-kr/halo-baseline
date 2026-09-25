@@ -263,6 +263,94 @@ contract SettlementTest is Test {
     }
 
     /*//////////////////////////////////////////////////////////////
+                                   VOID
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Nobody ever published, so everybody gets their money back.
+     *
+     * This is the path that decides whether an epoch going wrong is an
+     * inconvenience or a loss. It has to work from a market that has real
+     * collateral in it, with no cooperation from anyone in particular.
+     */
+    function test_void_returnsCollateralAtEvenOdds() public {
+        vm.prank(alice);
+        vault.split(id, 1_000e6);
+        vm.prank(bob);
+        vault.split(id, 500e6);
+
+        // Nothing is ever published for this epoch.
+        vm.warp(closesAt + VOID + 1);
+        oracle.voidEpoch(SERIES, EPOCH);
+        vault.settleVoid(id);
+
+        assertTrue(vault.markets(id).voided);
+        assertEq(vault.markets(id).payoutHighWad, 0.5e18);
+
+        uint256 aliceBefore = usdc.balanceOf(alice);
+        uint256 bobBefore = usdc.balanceOf(bob);
+
+        vm.prank(alice);
+        vault.redeem(id);
+        vm.prank(bob);
+        vault.redeem(id);
+
+        // Both held complete sets, so both are made exactly whole.
+        assertEq(usdc.balanceOf(alice) - aliceBefore, 1_000e6);
+        assertEq(usdc.balanceOf(bob) - bobBefore, 500e6);
+        assertEq(vault.collateralOf(id), 0);
+    }
+
+    /// @dev A one-sided holder gets half, which is what even odds means.
+    function test_void_oneSidedHolderGetsHalf() public {
+        vm.prank(alice);
+        vault.split(id, 1_000e6);
+        (, address low) = vault.outcomes(id);
+        vm.prank(alice);
+        OutcomeToken(low).transfer(bob, 1_000e6);
+
+        vm.warp(closesAt + VOID + 1);
+        oracle.voidEpoch(SERIES, EPOCH);
+        vault.settleVoid(id);
+
+        vm.prank(alice);
+        assertEq(vault.redeem(id), 500e6);
+        vm.prank(bob);
+        assertEq(vault.redeem(id), 500e6);
+    }
+
+    function test_settleVoid_beforeOracleVoidsReverts() public {
+        vm.expectRevert(EpochVault.NotSettled.selector);
+        vault.settleVoid(id);
+    }
+
+    /// @dev A finalised epoch is not voidable, and a voided one is not settleable.
+    function test_void_andSettle_areMutuallyExclusive() public {
+        _settleAt(1000);
+        vm.warp(closesAt + VOID + 1);
+        vm.expectRevert(HaloIndexOracle.NotVoidable.selector);
+        oracle.voidEpoch(SERIES, EPOCH);
+
+        vm.expectRevert(EpochVault.AlreadySettled.selector);
+        vault.settleVoid(id);
+    }
+
+    /// @dev Anyone, because a void that needs permission is not a guarantee.
+    function test_void_pathIsPermissionless() public {
+        vm.prank(alice);
+        vault.split(id, 1_000e6);
+
+        vm.warp(closesAt + VOID + 1);
+        vm.startPrank(address(0xDEAD));
+        oracle.voidEpoch(SERIES, EPOCH);
+        vault.settleVoid(id);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        assertEq(vault.redeem(id), 1_000e6);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                    FUZZ
     //////////////////////////////////////////////////////////////*/
 
