@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+/// @notice Implemented by the vault, so the bond can scale with what is at stake.
+interface IOpenInterest {
+    function openInterestOf(bytes32 seriesId, uint64 epoch) external view returns (uint256);
+}
+
 /**
  * The index that settles the cover, published so that being wrong is provable.
  *
@@ -46,6 +51,11 @@ contract HaloIndexOracle {
     error NoEpoch();
     error ZeroRules();
     error BadWindow();
+    error NotOpen();
+    error TooEarly();
+    error TooLate();
+    error MissingInputs();
+    error BondTooSmall(uint256 required, uint256 given);
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -57,6 +67,16 @@ contract HaloIndexOracle {
         bytes32 rulesHash,
         uint64 closesAt,
         uint64 voidAfter
+    );
+    event Published(
+        bytes32 indexed seriesId,
+        uint64 indexed epoch,
+        int256 valueBps,
+        bytes32 leavesRoot,
+        bytes32 leavesCID,
+        address indexed publisher,
+        uint256 bond,
+        uint64 challengeEnd
     );
 
     /*//////////////////////////////////////////////////////////////
@@ -99,6 +119,15 @@ contract HaloIndexOracle {
 
     /// @notice Opens epochs and resolves disputes. A multisig, for now.
     address public governance;
+
+    /// @notice How many times the open interest a publication must be backed by.
+    uint256 public constant BOND_MULTIPLE = 2;
+
+    /// @notice Floor per series, for publishing into a book with nothing in it.
+    mapping(bytes32 => uint256) public minBond;
+
+    /// @notice Where open interest is read from. The vault, once deployed.
+    IOpenInterest public openInterest;
 
     /// @dev seriesId => epoch => record
     mapping(bytes32 => mapping(uint64 => Epoch)) internal _epochs;
@@ -160,6 +189,67 @@ contract HaloIndexOracle {
     mapping(bytes32 => mapping(uint64 => uint64)) internal _challengeWindow;
 
     /*//////////////////////////////////////////////////////////////
+                                PUBLICATION
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Put up a value, the inputs behind it, and a bond that says you mean it.
+     *
+     * Anyone may publish. The gate is not permission, it is the bond: a false
+     * publication has to cost more than it earns, and what it earns scales
+     * with the open interest of every market referencing this epoch. So the
+     * requirement is `bond >= BOND_MULTIPLE × open interest`, read from the
+     * vault at publication time rather than fixed at open, because positions
+     * are still being taken after the rules are committed.
+     *
+     * `minBond` is a floor for the case where there is no open interest yet —
+     * publishing into an empty book still has to cost something or the record
+     * is free to pollute.
+     *
+     * Both the root and the CID are required. The root proves an observation
+     * was included; only the full leaf set proves one was not excluded, and
+     * censorship is the attack that actually pays.
+     */
+    function publish(bytes32 seriesId, uint64 epoch, int256 valueBps, bytes32 leavesRoot, bytes32 leavesCID)
+        external
+        payable
+    {
+        Epoch storage e = _epochs[seriesId][epoch];
+        if (e.status != Status.Open) revert NotOpen();
+        if (block.timestamp < e.closesAt) revert TooEarly();
+        if (block.timestamp >= e.voidAfter) revert TooLate();
+        if (leavesRoot == bytes32(0) || leavesCID == bytes32(0)) revert MissingInputs();
+
+        uint256 required = requiredBond(seriesId, epoch);
+        if (msg.value < required) revert BondTooSmall(required, msg.value);
+
+        e.valueBps = valueBps;
+        e.leavesRoot = leavesRoot;
+        e.leavesCID = leavesCID;
+        e.publisher = msg.sender;
+        e.bond = msg.value;
+        e.publishedAt = uint64(block.timestamp);
+        e.challengeEnd = uint64(block.timestamp) + _challengeWindow[seriesId][epoch];
+        e.status = Status.Published;
+
+        emit Published(seriesId, epoch, valueBps, leavesRoot, leavesCID, msg.sender, msg.value, e.challengeEnd);
+    }
+
+    /**
+     * What a publication must be backed by, right now.
+     *
+     * Reads open interest from the vault if one is wired up. Without that the
+     * bond is a number somebody picked, and a number somebody picked is not a
+     * deterrent against a position sized by somebody else.
+     */
+    function requiredBond(bytes32 seriesId, uint64 epoch) public view returns (uint256) {
+        uint256 floor_ = minBond[seriesId];
+        if (address(openInterest) == address(0)) return floor_;
+        uint256 scaled = openInterest.openInterestOf(seriesId, epoch) * BOND_MULTIPLE;
+        return scaled > floor_ ? scaled : floor_;
+    }
+
+    /*//////////////////////////////////////////////////////////////
                                   VIEWS
     //////////////////////////////////////////////////////////////*/
 
@@ -189,5 +279,13 @@ contract HaloIndexOracle {
 
     function setGovernance(address next) external onlyGovernance {
         governance = next;
+    }
+
+    function setMinBond(bytes32 seriesId, uint256 amount) external onlyGovernance {
+        minBond[seriesId] = amount;
+    }
+
+    function setOpenInterest(IOpenInterest source) external onlyGovernance {
+        openInterest = source;
     }
 }
