@@ -47,6 +47,7 @@ contract EpochVault {
     error BadStrike();
     error ZeroAmount();
     error ZeroAddress();
+    error AlreadySettled();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -61,6 +62,8 @@ contract EpochVault {
         address high,
         address low
     );
+    event Split(bytes32 indexed marketId, address indexed who, uint256 amount);
+    event Merge(bytes32 indexed marketId, address indexed who, uint256 burned, uint256 returned);
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -157,6 +160,73 @@ contract EpochVault {
         m.low = low;
 
         emit MarketCreated(id, seriesId, epoch, strikeBps, capBps, high, low);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                SPLIT / MERGE
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * Collateral in, one of each outcome out.
+     *
+     * WHY THE BALANCE IS MEASURED RATHER THAN ASSUMED. The amount minted is
+     * the amount this contract actually received, not the amount the caller
+     * asked to send. On Celo and Kaia the dollar stablecoins are bridged and
+     * upgradeable, and a bridge that starts taking a fee on transfer would,
+     * under the obvious implementation, mint more outcome tokens than there is
+     * collateral behind them. That is not a rounding error — it is the moment
+     * the vault becomes insolvent, and it happens on the first deposit after
+     * the upgrade with no warning.
+     *
+     * Measuring the delta costs one extra balanceOf and makes the invariant
+     * true by construction instead of true by assumption about a token we do
+     * not control.
+     */
+    function split(bytes32 id, uint256 amount) external returns (uint256 minted) {
+        if (amount == 0) revert ZeroAmount();
+        Market storage m = _markets[id];
+        if (m.high == address(0)) revert NoMarket();
+        if (m.settled || m.voided) revert AlreadySettled();
+
+        uint256 before = collateralToken.balanceOf(address(this));
+        collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+        minted = collateralToken.balanceOf(address(this)) - before;
+        if (minted == 0) revert ZeroAmount();
+
+        m.collateral += minted;
+        OutcomeToken(m.high).mint(msg.sender, minted);
+        OutcomeToken(m.low).mint(msg.sender, minted);
+
+        emit Split(id, msg.sender, minted);
+    }
+
+    /**
+     * The inverse, available any time before settlement.
+     *
+     * Burning both halves is the only way back out before the index is known,
+     * which is what keeps the two supplies equal without the vault having to
+     * track who holds what.
+     *
+     * The caller receives whatever leaves this contract, so a fee-on-transfer
+     * collateral costs the withdrawer rather than the market. Burning the full
+     * `amount` against a short receipt is correct: the shortfall is the token's
+     * fee, not collateral that belongs to anyone still in the market.
+     */
+    function merge(bytes32 id, uint256 amount) external returns (uint256 returned) {
+        if (amount == 0) revert ZeroAmount();
+        Market storage m = _markets[id];
+        if (m.high == address(0)) revert NoMarket();
+        if (m.settled || m.voided) revert AlreadySettled();
+
+        OutcomeToken(m.high).burn(msg.sender, amount);
+        OutcomeToken(m.low).burn(msg.sender, amount);
+        m.collateral -= amount;
+
+        uint256 before = collateralToken.balanceOf(address(this));
+        collateralToken.safeTransfer(msg.sender, amount);
+        returned = before - collateralToken.balanceOf(address(this));
+
+        emit Merge(id, msg.sender, amount, returned);
     }
 
     /*//////////////////////////////////////////////////////////////
