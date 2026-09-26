@@ -61,6 +61,7 @@ contract HaloHook is IHooks {
 
     error NotPoolManager();
     error NotGovernance();
+    error ZeroGovernance();
     error MarketFrozen();
     error UnknownPool();
     error HookNotImplemented();
@@ -164,7 +165,9 @@ contract HaloHook is IHooks {
         emit PoolBound(key.toId(), marketId);
     }
 
+    /// @dev Zero would leave no way to bind another pool to a market.
     function setGovernance(address next) external onlyGovernance {
+        if (next == address(0)) revert ZeroGovernance();
         governance = next;
     }
 

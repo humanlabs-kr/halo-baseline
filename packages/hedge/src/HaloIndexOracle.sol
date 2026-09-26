@@ -47,6 +47,7 @@ contract HaloIndexOracle {
     //////////////////////////////////////////////////////////////*/
 
     error NotGovernance();
+    error ZeroGovernance();
     error EpochExists();
     error NoEpoch();
     error ZeroRules();
@@ -344,8 +345,8 @@ contract HaloIndexOracle {
         e.bond = 0;
         e.status = Status.Finalized;
 
-        _pay(publisher, bond);
         emit Finalized(seriesId, epoch, e.valueBps);
+        _pay(publisher, bond);
     }
 
     /**
@@ -439,7 +440,9 @@ contract HaloIndexOracle {
         return _epochs[seriesId][epoch].closesAt;
     }
 
+    /// @dev Zero would leave nobody able to open an epoch or resolve a dispute.
     function setGovernance(address next) external onlyGovernance {
+        if (next == address(0)) revert ZeroGovernance();
         governance = next;
     }
 

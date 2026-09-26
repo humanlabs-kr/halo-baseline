@@ -52,6 +52,7 @@ contract EpochVault is IOpenInterest {
     error NotSettled();
     error NothingToRedeem();
     error Frozen();
+    error Reentrancy();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -111,6 +112,25 @@ contract EpochVault is IOpenInterest {
     uint8 internal immutable _outcomeDecimals;
 
     mapping(bytes32 => Market) internal _markets;
+
+    /// @dev 1 = idle, 2 = inside. Cheaper than a bool and never zero after first use.
+    uint256 private _lock = 1;
+
+    /**
+     * The balance-delta measurement is what makes this necessary.
+     *
+     * A collateral token that calls back into split() from inside its own
+     * transferFrom would have the outer call measure a delta that includes the
+     * inner deposit, and mint against it twice. The measurement is the right
+     * defence against a fee; it needs this to be the right defence against a
+     * hook in the token.
+     */
+    modifier nonReentrant() {
+        if (_lock != 1) revert Reentrancy();
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTION
@@ -232,7 +252,7 @@ contract EpochVault is IOpenInterest {
      * true by construction instead of true by assumption about a token we do
      * not control.
      */
-    function split(bytes32 id, uint256 amount) external notFrozen(id) returns (uint256 minted) {
+    function split(bytes32 id, uint256 amount) external nonReentrant notFrozen(id) returns (uint256 minted) {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();
@@ -263,7 +283,7 @@ contract EpochVault is IOpenInterest {
      * `amount` against a short receipt is correct: the shortfall is the token's
      * fee, not collateral that belongs to anyone still in the market.
      */
-    function merge(bytes32 id, uint256 amount) external notFrozen(id) returns (uint256 returned) {
+    function merge(bytes32 id, uint256 amount) external nonReentrant notFrozen(id) returns (uint256 returned) {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();
@@ -356,7 +376,7 @@ contract EpochVault is IOpenInterest {
      * The cost is at most one wei per side per holder left in the vault. That
      * is a rounding crumb; a revert is a support ticket.
      */
-    function redeem(bytes32 id) external returns (uint256 paid) {
+    function redeem(bytes32 id) external nonReentrant returns (uint256 paid) {
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();
         if (!m.settled) revert NotSettled();
@@ -385,8 +405,8 @@ contract EpochVault is IOpenInterest {
         if (l != 0) low.burn(msg.sender, l);
         m.collateral -= paid;
 
-        collateralToken.safeTransfer(msg.sender, paid);
         emit Redeemed(id, msg.sender, h, l, paid);
+        collateralToken.safeTransfer(msg.sender, paid);
     }
 
     /*//////////////////////////////////////////////////////////////
