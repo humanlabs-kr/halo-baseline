@@ -6,11 +6,14 @@ happens if nobody decides.
 
 Nothing below is a bug. Bugs got fixed; these are choices that are not mine.
 
-> **Four of these were decided and shipped.** Chain, collateral, bond rate and
-> the ENS name now carry the answer that was taken rather than the question —
-> see `deployed.md` for the addresses and the lifecycle they were proved
-> against. The reasoning is kept rather than deleted, because the next person
-> deserves to know what was traded away.
+> **Seven of the eight were decided and shipped.** Chain, collateral, bond rate,
+> the ENS name, the arbiter, the seeding size and the gateway key all now carry
+> the answer that was taken rather than the question — see `deployed.md` for the
+> addresses and the runs they were proved against. The reasoning is kept rather
+> than deleted, because the next person deserves to know what was traded away.
+>
+> The one left is #8, which is not a decision about the system: it is two facts
+> about us that only a human has.
 
 ---
 
@@ -66,18 +69,27 @@ this repository prevents that.
 
 ---
 
-## 3. `halo.eth` — **DECIDED: ship the resolver, attach the name later**
+## 3. `halo.eth` — **DECIDED: ship the resolver; the name is blocked upstream**
 
-`HaloResolver` is deployed on Sepolia. A reviewer can call `resolve(bytes,bytes)`
-on it and watch it revert `OffchainLookup` with the gateway URL, which is the
-entire ENSIP-10 plus EIP-3668 integration — the name it hangs off changes
-nothing about that.
+`HaloResolver` is deployed on Sepolia and the whole ENSIP-10 plus EIP-3668 loop
+is verified against it by a standards-compliant client — viem reads the
+`OffchainLookup`, fetches, and calls `resolveCallback` back on the deployed
+contract on its own. That is the integration, and the node it hangs off changes
+nothing about it.
 
-Attaching it is five minutes through `app.ens.domains` with the wallet we hold,
-and the archaeology below is why it is not worth more than that.
+Attaching it was expected to be five minutes through `app.ens.domains`. It is
+not: **`.eth` registration on Sepolia is currently broken for everybody.** A
+commitment was made with the current controller's own `makeCommitment`,
+committed on chain, and aged past `minCommitmentAge`; `register` then dies inside
+`BaseRegistrar` on `require(controllers[msg.sender])`, because ENS's own current
+`ETHRegistrarController` is not authorised there. The wrapped path fails one
+level down for the same reason. Full trace in `ens-sepolia-status.md`.
 
-**What was traded away:** `rice.jp.halo.eth` does not resolve in a third-party
-client today. That is a demo detail, not an integration gap.
+**What was traded away:** `jp.halo.eth` does not resolve in a wallet today. The
+way through that does not depend on ENS is claiming a domain we already own
+through the DNSSEC registrar — deliberately not done, because enabling DNSSEC on
+a zone serving a live app to 417,000 people is not a 3am change for a demo
+detail.
 
 ### The original note
 
@@ -99,7 +111,27 @@ controls and rename the hierarchy. One line.
 
 ---
 
-## 4. Who arbitrates a dispute
+## 4. Who arbitrates a dispute — **DECIDED: the deployer, disclosed, because the design does not rest on them**
+
+Governance is `0x87B44c4A520Ff421560a7B670AA4C8D61277E37B`, the deploy wallet.
+Said plainly rather than dressed up as a multisig that does not exist.
+
+The reason that is acceptable rather than a hole is already in the contract:
+**`voidEpoch` is permissionless.** An arbiter who never rules, or who
+disappears, cannot strand anybody's collateral — anyone may void a stuck epoch
+after `voidAfter`, and voiding returns the collateral at even odds. So the worst
+an absent or hostile arbiter achieves is that a market pays 50/50 instead of on
+the index. That is a bad outcome and not a loss of funds, and it is the property
+worth having when the alternative is trusting a name.
+
+What a multisig buys is fewer 50/50 voids, not safety. The upgrade is an
+escalation game with its own bond — UMA's shape — and that is a protocol, not a
+parameter.
+
+**What was traded away:** for now, one key can rule a dispute. Every holder's
+escape hatch does not depend on it.
+
+### The original note
 
 **Blocked:** nothing technically — `HaloIndexOracle.resolve` is governance-only
 and works today. What is open is who governance is.
@@ -109,12 +141,30 @@ oracle with its own dispute market is the upgrade. What is not acceptable is
 leaving it unnamed: a dispute mechanism with no resolver is worse than none,
 because it looks like one.
 
-**If nobody decides:** the deployer address arbitrates, which is fine for a
-demo and must be said plainly rather than glossed.
-
 ---
 
-## 5. Treasury size for seeding
+## 5. Treasury size for seeding — **DECIDED: two markets, ~5,900 tUSD each, and the number is on chain**
+
+At launch the protocol is the counterparty. That is not a weakness to hide — it
+is the first thing a serious reviewer asks, and the complete answer is a number.
+
+The number is **1e11 of v4 liquidity per pool across -600..600**, which at six
+decimals is about **2,955 tUSD and 2,955 HIGH** per side, so roughly 5,900 tUSD
+of value per market. Two markets. Both live, both tradeable by anyone, and
+anybody can mint the collateral to trade against them.
+
+The policy that goes with it: the protocol seeds a **fixed, published number of
+markets at a published size**, and stops. It does not quietly become the only
+liquidity in a market that has grown past it. The hook's 10bp backstop accrues
+on every swap precisely so the seed is compensated for adverse selection rather
+than subsidising it — and it accrues as ERC-6909 claims rather than transfers,
+so the cost does not scale with the number of recipients.
+
+**What was traded away:** 5,900 tUSD is a demo-sized book. A real position moves
+the price, and the honest framing on a slide is "seeded, disclosed, small"
+rather than "liquid".
+
+### The original note
 
 **Blocked:** how many markets can open at once, and the honesty of the claim
 that anyone can trade them.
@@ -123,8 +173,6 @@ At launch the protocol is the counterparty. That is not a weakness to hide —
 it is the first question a serious reviewer asks, and "we seed every market
 from our own balance sheet, at a disclosed size" is a complete answer. It just
 needs a number.
-
-**If nobody decides:** one market, seeded small, disclosed.
 
 ---
 
@@ -163,7 +211,24 @@ and must not reach a market holding real money.
 
 ---
 
-## 7. `ENS_GATEWAY_SIGNER_KEY`
+## 7. `ENS_GATEWAY_SIGNER_KEY` — **DECIDED: one key per environment, both trusted on chain**
+
+| Environment | Signer | Stored as |
+|---|---|---|
+| production | `0x2B8485cC792D27CBc677b31902168Cf7492DC35F` | `stored-keys` id `halo-ens-gateway-signer` |
+| staging | `0x2Ae9a193EEF0303B3bAf90d1D011dD31225694F1` | `stored-keys` id `halo-ens-gateway-signer-staging` |
+
+Two rather than one because `trustedSigner` is a mapping: a staging leak is
+revoked with a single `setSigner(addr, false)` and cannot be used to sign for
+the production name in the meantime. Both are trusted on the deployed resolver
+and both are set as GitHub Environment secrets, wired into the deploy workflow
+alongside every other secret. Neither holds funds; neither can move anything.
+
+**What still needs a person:** nothing, until the branch deploys. Until then the
+URLs in the `OffchainLookup` answer 404, which is why the proof script supplies
+the gateway inline. See `ens-gateway.md`.
+
+### The original note
 
 **Blocked:** the CCIP-Read gateway signing anything. It answers 400 until the
 secret exists, which is the correct failure rather than a pretend signature.

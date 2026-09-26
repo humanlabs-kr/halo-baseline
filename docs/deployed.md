@@ -93,24 +93,133 @@ strike to a +15% cap. The redeemer held a complete set and got back precisely
 what they put in, 100000000 base units, which is the exact-pair path rather
 than two floored halves.
 
-## Not done
+## The pools — two, because one cannot show a fee that depends on the clock
 
-**No pool is initialised.** The hook is deployed and carries its permissions,
-and `HaloHook.t.sol` drives every callback, but no v4 pool has been created
-against it on chain yet. Seeding one needs the treasury decision in
-`open-decisions.md` #5.
+The hook's fee is a function of how long is left before the epoch closes. A test
+can warp; a live chain cannot. So there are two markets on the same series,
+identical in strike, cap, liquidity and swap size, differing only in when they
+close.
 
-**The resolver is not set on a name.** `HaloResolver` is live and a reviewer
-can call `resolve(bytes,bytes)` on it and watch it revert `OffchainLookup` with
-the gateway URL — which is the whole of the ENSIP-10 plus EIP-3668 integration.
-Attaching it to `halo.eth` is blocked on the Sepolia registrar controller; see
-`ens-sepolia-status.md`. Mainnet `halo.eth` belongs to somebody else and must
-not appear on a slide as though it did not.
+| | FAR | NEAR |
+|---|---|---|
+| Epoch | `202701` | `202702` |
+| Closes | +30 days from the run | +3 days |
+| Market id | `0xe9e1466f…` | `0x54c55f27…` |
+| Pool id | `0x3c5b5f16…` | `0x9ba73121…` |
+| HIGH token | `0xCD450124B66E30C6eFe300aAB0be15f462FbF7E9` | `0xE288830C5809Ecba12fB24FfB99dBaFff8dc5381` |
+| `feeFor` at the run | **500** (0.05%) | **11,642** (1.16%) |
+| Same 100 tUSD swap returned | **99,750,349** | **98,639,473** |
+
+A reviewer does not have to take the fee curve on trust or read the source. Two
+static calls to `feeFor` return the two numbers, and the outputs differ by
+1,110,876 base units — which is the fee and nothing else, because the pools were
+identical when the swaps went in.
+
+**The pool's own price carries the same proof.** Read `sqrtPriceX96` out of both
+and NEAR's is *higher* than FAR's — the larger fee meant less of the input
+reached the curve, so the price moved less:
+
+```
+FAR   sqrtPriceX96=79149053035755100370723412286  tick=-20  lpFee=0  liquidity=100000000000
+NEAR  sqrtPriceX96=79149934992614127391193373930  tick=-20  lpFee=0  liquidity=100000000000
+```
+
+`lpFee` is stored as **zero** on both, which is correct and is the thing that
+most often goes wrong: a dynamic-fee pool carries no static fee, and the fee
+arrives per swap from the hook. A pool initialised without `DYNAMIC_FEE_FLAG`, or
+a hook returning a fee without `OVERRIDE_FEE_FLAG`, trades at whatever the key
+said with no error anywhere.
+
+The NEAR pool also **freezes by itself** three days after the run, with nobody
+touching it. `feeFor` on it climbs every block; it read 11,642 during the run and
+11,656 a few minutes later.
+
+`DemoRouter` is at `0xf3436d55eBBBDEC75b8a7594C7D9Fc837EEAdb11` — a minimal
+`unlock`/`unlockCallback` router, deliberately not v4-periphery's
+PositionManager, because pulling that in to prove a hook works means proving
+PositionManager works too.
+
+Twenty transactions, all successful: `0x2a7cfec8…` (router) through
+`0xa947189c…` (the NEAR swap). Both `bindPool` calls are `0x41bcaf5f…` and
+`0xeb9f072e…`, and `marketOf(poolId)` returns the expected market for each.
+
+## ENS, end to end against the deployed resolver
+
+Series `keccak256("JP")` = `0xf72d99cb…`, epoch `202612`, **finalised on chain at
++312 bps**.
+
+| Step | Transaction |
+|---|---|
+| Trust the production gateway signer | [`0x18ea4ddd…`](https://sepolia.etherscan.io/tx/0x18ea4ddd72eb0577f52bcfcf68d3a03ab524d8c15bbcfc51b9aeeeff2c1e2290) |
+| Trust the staging gateway signer | [`0xbd498050…`](https://sepolia.etherscan.io/tx/0xbd498050a27ef4d4b3e9bbbc12c74435c9d26b183ded51ef25ea0310d269fd12) |
+| Two gateway URLs, not one | [`0xec351d99…`](https://sepolia.etherscan.io/tx/0xec351d99b4b786e921ffed1fa8daf43022ff3e8ccdfff4f5ada5b8d225900afa) |
+| Open the JP epoch | [`0x9ad17400…`](https://sepolia.etherscan.io/tx/0x9ad17400bf5c64e16d74703ffcc4652c728e38c18335c99f3f7d1eda4c9533ce) |
+| Publish +312 bps, bonded | [`0x51558b14…`](https://sepolia.etherscan.io/tx/0x51558b145ac47bcd10a0c18ede8ae84fbd46eac88343a89c7840774e6510330b) |
+| Finalise after the window | [`0x925ea3ac…`](https://sepolia.etherscan.io/tx/0x925ea3ac07712633d186cb4c3fd2b0afb903d88a5d39cb02e3a75699c19d850c) |
+
+`pnpm --filter @halo/api exec tsx scripts/ens-ccip-proof.ts`, every step an
+`eth_call` so anyone can rerun it holding no funds:
+
+```
+ok    OffchainLookup names itself as sender
+ok    more than one gateway URL                                    2
+ok    callback selector present                                    0xb4a85801
+ok    extraData is callData minus the selector
+ok    the resolver trusts our signer                               0x2B8485cC…
+ok    callback accepts the signed answer                           312 bps
+ok    callback refuses a value the oracle disagrees with            GatewayDisagreesWithOracle(313, 312)
+ok    callback refuses a stale answer                              StaleResponse()
+ok    callback refuses an unknown signer                           UnknownSigner()
+      client fetched the gateway itself: sender=0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7
+ok    a standards-compliant client resolves the name end to end     312 bps
+```
+
+The last two lines are the ones worth having. viem implements EIP-3668, so given
+a gateway it reads the revert, fetches, and calls `resolveCallback` on the
+deployed resolver **on its own** — nothing in the script walks it through. And
+the disagreement line is the check no other offchain resolver has: it re-read the
+oracle and refused a number one basis point off.
+
+That run also found a real defect no test could have. The deployed resolver had
+**one** gateway URL, while the contract's own comment says the list is plural
+because a single gateway is a single point of failure — the deploy script quietly
+passed an array of one. The contract was correct; the deployment was not. Fixed
+on chain and in the script.
+
+## Still not done, and why
+
+**`jp.halo.eth` does not resolve in a wallet.** Not our defect: `.eth`
+registration on Sepolia is currently broken for everybody, because ENS's own
+current `ETHRegistrarController` is not authorised on the BaseRegistrar it
+calls. A commitment was made and aged properly; `register` dies on
+`require(controllers[msg.sender])`. The full trace is in
+`ens-sepolia-status.md`. Pointing the resolver at a node is one
+`registry.setResolver` call on the day one exists.
+
+**The gateway route is not deployed.** The secret is set in both GitHub
+Environments and wired into the deploy workflow, so this is a deploy away rather
+than a code change — but until the branch ships, the URLs in the
+`OffchainLookup` answer 404. The proof script supplies the gateway inline for
+exactly this reason, and the bytes it produces are the bytes that route
+produces.
+
+**Reaching the app's users.** Sepolia is not where the 417,000 are. That gap is
+decision #1 in `open-decisions.md` and it is a bridge.
 
 ## Reproducing
 
 ```bash
 cd packages/hedge
+
+# the contracts
 forge script script/DeploySepolia.s.sol:DeploySepolia \
   --rpc-url $SEPOLIA_RPC --private-key $PK --broadcast --slow
+
+# the two pools, funded and traded
+COLLATERAL=… ORACLE=… VAULT=… HOOK=… \
+forge script script/SeedPool.s.sol:SeedPool \
+  --rpc-url $SEPOLIA_RPC --private-key $PK --broadcast --slow
+
+# the ENS loop, read-only
+cd ../.. && pnpm --filter @halo/api exec tsx scripts/ens-ccip-proof.ts
 ```
