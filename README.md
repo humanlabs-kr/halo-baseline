@@ -44,7 +44,8 @@ Each is called out where it matters in the code. `AGENTS.md` has the conventions
 | **Mini app** | `apps/miniapp` | React + Vite SPA. One app, three wallet platforms, selected at runtime. |
 | **Shared contracts** | `packages/contracts` | Zod schemas, chain constants and ABIs shared by API and frontend. |
 | **Database** | `packages/database` | Drizzle ORM schema and migrations (PostgreSQL via Hyperdrive). |
-| **Onchain** | `packages/onchain` | Solidity point-claim contract (Foundry). |
+| **Onchain** | `packages/onchain` | Solidity point-claim contract (Foundry, solc 0.8.22 — pinned to the deployed proxy). |
+| **Hedge** | `packages/hedge` | Cover on grocery inflation: index oracle, vault, Uniswap v4 hook, ENS resolver (Foundry, solc 0.8.26). |
 | **Tooling** | `tooling/*` | Shared ESLint and TypeScript configs. |
 
 ### How a receipt becomes a reward
@@ -236,6 +237,8 @@ pnpm --filter @halo/onchain test
 apps/api             70   SIWE verification, session issuance, token shape
 packages/contracts   15   hostname → platform resolution
 packages/onchain     29   Foundry, including a V1→V2 upgrade that must preserve balances
+packages/hedge       91   Foundry. Fee-on-transfer and reentrant collateral, a crossed-holdings
+                          settlement fuzz, and the hook's address bits
 apps/miniapp          –   check-locales (see "Languages")
 ```
 
@@ -244,7 +247,9 @@ signature is a real EIP-191 signature from a real key, and the only thing
 substituted is the JSON-RPC node. It exists because the login path has broken
 twice in ways typecheck and build were both happy with.
 
-`packages/onchain` needs Foundry (`forge`) on PATH; CI installs it.
+`packages/onchain` and `packages/hedge` need Foundry (`forge`) on PATH; CI installs
+it. They are separate packages because they pin different compilers, and that is
+deliberate rather than untidy — see `packages/hedge/README.md`.
 
 ### Checking extraction against real receipts
 
