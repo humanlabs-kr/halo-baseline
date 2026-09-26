@@ -71,8 +71,15 @@ contract DeploySepolia is Script {
         HaloHook hook = new HaloHook{salt: salt}(IPoolManager(POOL_MANAGER), vault, governance);
         require(address(hook) == predicted, "mined address did not match");
 
-        string[] memory gateways = new string[](1);
+        // Two, and the second one is not decoration. `urls` in the
+        // OffchainLookup revert is an array because clients try them in order,
+        // and "our server was down" is not an answer a name is allowed to
+        // give. Deploying with one silently throws that away; the first deploy
+        // did exactly that and it took a script driving a real client against
+        // the deployed contract to notice.
+        string[] memory gateways = new string[](2);
         gateways[0] = "https://api.halo.humanlabs.world/v1/ens/gateway";
+        gateways[1] = "https://api.receipto.seriesc.dev/v1/ens/gateway";
         HaloResolver resolver = new HaloResolver(oracle, governance, gateways);
 
         vm.stopBroadcast();
