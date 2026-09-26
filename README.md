@@ -16,6 +16,100 @@ Halo first shipped at ETHGlobal Buenos Aires 2025. That submission is preserved
 unchanged at [humanlabs-kr/halo-ethglobal-2025](https://github.com/humanlabs-kr/halo-ethglobal-2025);
 this repository is where it went afterwards.
 
+---
+
+## ETHGlobal Tokyo 2026 — where to look
+
+Halo was a **top-10 finalist at ETHGlobal Buenos Aires 2025**. This is the
+continuity submission: the same product, two years and 417,000 users later,
+with a settlement-grade market built on top of it.
+
+Everything new lives in **[`packages/hedge`](./packages/hedge)** and is
+deployed on Ethereum Sepolia. Addresses and the transaction hashes behind every
+claim are in **[`docs/deployed.md`](./docs/deployed.md)**.
+
+### Uniswap v4 — what to verify, and where
+
+Feedback for the Uniswap Foundation is in **[`FEEDBACK.md`](./FEEDBACK.md)**.
+
+`HaloHook` is deployed at
+[`0xb8fd9d54093820e43Ca21B223468b78624198Ac4`](https://sepolia.etherscan.io/address/0xb8fd9d54093820e43Ca21B223468b78624198Ac4).
+**The last four characters are the integration**: `…8Ac4`, whose low fourteen
+bits are `0x0AC4` — exactly the five permissions it declares. v4 reads a hook's
+rights off its address, so the deploy mines a CREATE2 salt until it lands on
+one that spells them out.
+
+| What | File and line |
+|---|---|
+| Hook implements `IHooks` directly (no `BaseHook` in periphery 1.0.4) | [`HaloHook.sol:54`](./packages/hedge/src/HaloHook.sol#L54) |
+| `beforeSwap` — settlement freeze, and the dynamic fee | [`HaloHook.sol:206`](./packages/hedge/src/HaloHook.sol#L206) |
+| The fee returned with `OVERRIDE_FEE_FLAG`, which is half of why it applies | [`HaloHook.sol:221`](./packages/hedge/src/HaloHook.sol#L221) |
+| `feeFor` — the fee curve, from the clock alone | [`HaloHook.sol:187`](./packages/hedge/src/HaloHook.sol#L187) |
+| `afterSwap` — 10bp backstop taken as ERC-6909 claims, not transfers | [`HaloHook.sol:225`](./packages/hedge/src/HaloHook.sol#L225) |
+| `poolManager.mint(...)` — the claim itself | [`HaloHook.sol:248`](./packages/hedge/src/HaloHook.sol#L248) |
+| `beforeAddLiquidity` / `beforeRemoveLiquidity` — the freeze covers liquidity too | [`:255`](./packages/hedge/src/HaloHook.sol#L255), [`:272`](./packages/hedge/src/HaloHook.sol#L272) |
+| The six unused callbacks, reverting because the address lacks their flags | [`HaloHook.sol:288`](./packages/hedge/src/HaloHook.sol#L288) |
+| CREATE2 salt mining, exact-match on the flag bits | [`Deploy.s.sol:76`](./packages/hedge/script/Deploy.s.sol#L76) |
+| `DYNAMIC_FEE_FLAG` in the `PoolKey` — the other half | [`SeedPool.s.sol:172`](./packages/hedge/script/SeedPool.s.sol#L172) |
+| Minimal `unlock`/`unlockCallback` router | [`DemoRouter.sol:85`](./packages/hedge/src/DemoRouter.sol#L85) |
+| `sync()` before the transfer, which is the easy one to get wrong | [`DemoRouter.sol:145`](./packages/hedge/src/DemoRouter.sol#L145) |
+
+**The test that matters** is
+[`Pool.t.sol:236`](./packages/hedge/test/Pool.t.sol#L236) — it runs the same
+swap through two otherwise identical pools and asserts the one nearer its close
+returns less. A dynamic fee that is silently dropped passes every other test in
+the suite; this is the one that notices.
+
+The same comparison exists **on chain**, as two live pools that differ only in
+when they close:
+
+| | FAR (`202701`) | NEAR (`202702`) |
+|---|---|---|
+| `feeFor` | 500 pips (0.05%) | 11,642 pips (1.16%) |
+| Same 100 tUSD swap returned | 99,750,349 | 98,639,473 |
+
+Reproduce with `forge test` in `packages/hedge` (119 tests), or read the
+transaction list in [`docs/deployed.md`](./docs/deployed.md).
+
+### ENS
+
+`HaloResolver` is deployed at
+[`0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7`](https://sepolia.etherscan.io/address/0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7).
+
+| What | File and line |
+|---|---|
+| ENSIP-10 `resolve(bytes,bytes)` — the wildcard entry point | [`HaloResolver.sol:109`](./packages/hedge/src/HaloResolver.sol#L109) |
+| EIP-3668 `OffchainLookup` — a revert that is a success path | [`HaloResolver.sol:44`](./packages/hedge/src/HaloResolver.sol#L44) |
+| The callback, and the check that re-reads the oracle | [`HaloResolver.sol:142`](./packages/hedge/src/HaloResolver.sol#L142) |
+| The CCIP-Read gateway | [`apps/api/src/routes/client/ens-gateway.ts`](./apps/api/src/routes/client/ens-gateway.ts) |
+| The digest both languages have to agree on, byte for byte | [`gateway-digest.ts`](./apps/api/src/lib/matched-index/gateway-digest.ts) |
+
+**A signature proves who spoke, not that the number is true.** Every other
+offchain resolver stops there. For a finalised epoch ours re-reads
+`HaloIndexOracle` and refuses a signed value that disagrees — verified against
+the deployed contract, by viem, which follows the `OffchainLookup` on its own:
+
+```
+pnpm --filter @halo/api exec tsx scripts/ens-ccip-proof.ts
+```
+
+```
+ok    callback accepts the signed answer                     312 bps
+ok    callback refuses a value the oracle disagrees with     GatewayDisagreesWithOracle(313, 312)
+ok    a standards-compliant client resolves the name         312 bps
+```
+
+Every step is `eth_call`, so anyone can rerun it holding no funds.
+Notes: [`docs/ens-gateway.md`](./docs/ens-gateway.md).
+
+### The index the market settles on
+
+Not a category median — a **matched-model** index, because a category median
+moves with the shopping mix rather than with prices, and falls in the month a
+household most needs cover. Same shop, same product, same pack size, two
+periods. [`docs/index-methodology.md`](./docs/index-methodology.md),
+[`apps/api/src/lib/matched-index/`](./apps/api/src/lib/matched-index).
+
 ## Three things production has already decided
 
 Changing any of these is a migration, not an edit.
