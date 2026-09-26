@@ -112,6 +112,7 @@ Each is a defence against a specific attack, and is named that way.
 
 | Rule | Value | What it stops |
 |---|---|---|
+| Source | `vision` only | Seeded demo rows becoming a settled number |
 | Per-person cap | 1 per item per period | One **person** being a price series |
 | Distinct people per item | 3 | Sybil across addresses on one item |
 | Distinct outlets per series | 3 | Colluding with one shop |
@@ -127,6 +128,29 @@ those through is how a labelling change settles a contract.
 
 Trimming is symmetric **in logs**. A halving and a doubling are the same size
 of move, and trimming in levels cuts more of one tail than the other.
+
+### Which rows are admitted at all
+
+The corpus holds two kinds of line item. `source = 'vision'` was extracted from
+a photographed receipt. `source = 'seed'` was generated so a demo wallet has a
+basket to render — the merchant, date and printed total are real, the split
+across items is not.
+
+**Only `vision` enters the index**, and that is in the committed rules rather
+than only in the query, because what data is admitted is the most load-bearing
+rule there is: a challenger who cannot see it cannot tell whether the published
+figure was computed over the population they are recomputing over.
+
+This shipped wrong. The filter was missing, so synthetic prices could have
+reached a figure that gets signed, bonded and settled on chain, and nothing
+would have indicated it — seeded rows are well-formed and the aggregation is
+perfectly happy to average them. It was found by deploying to an environment
+whose corpus is mostly seed and noticing the index had an opinion about it.
+
+`rulesHash` moved as a result and the rules version is now `halo-matched-2`.
+The epoch already finalised on Sepolia was published under `halo-matched-1`;
+that is what committing a rules hash is *for*, and the old value stays valid
+for the epoch that used it.
 
 ### What "one person" means, and what it is worth
 

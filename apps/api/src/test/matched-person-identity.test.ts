@@ -146,3 +146,35 @@ describe('who counts as one person', () => {
     expect(result.verifiedPeople).toBe(1);
   });
 });
+
+/**
+ * Seeded rows are synthetic. They exist so a demo wallet has a basket, and the
+ * corpus is explicit that they may never become a public number.
+ *
+ * The index shipped without the filter for a while, which meant a figure that
+ * gets signed, bonded and settled on chain could have been computed over
+ * invented prices. Nothing would have said so — the rows are well-formed and
+ * the aggregation is happy to average them.
+ */
+describe('what data is admitted', () => {
+  it('names the source in the committed rules, so a challenger can see it', async () => {
+    const { CURRENT_RULES, rulesHash } = await import('../lib/matched-index/snapshot');
+    expect(CURRENT_RULES.source).toBe('vision');
+
+    // And changing it has to move the hash, or committing it means nothing.
+    const asShipped = rulesHash();
+    const withSeeds = rulesHash({ ...CURRENT_RULES, source: 'seed' as 'vision' });
+    expect(withSeeds).not.toBe(asShipped);
+  });
+
+  it('asks the database for vision rows only', async () => {
+    const { readFileSync } = await import('node:fs');
+    // Relative to the package root, which is vitest's cwd. Avoids URL, whose
+    // DOM and node types disagree under this tsconfig.
+    const source = readFileSync('src/lib/matched-index/epoch-index.ts', 'utf8');
+    // A query assertion rather than a behavioural one, because the filter lives
+    // in SQL and the stub database in this file cannot execute SQL. Crude, and
+    // it would have caught the omission.
+    expect(source).toContain("li.source = 'vision'");
+  });
+});

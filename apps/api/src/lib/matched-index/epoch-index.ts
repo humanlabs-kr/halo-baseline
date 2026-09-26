@@ -109,6 +109,11 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
       FROM ${receiptLineItems} li
       JOIN ${receipts} r ON r.id = li.receipt_id
       WHERE r.country_code = ${country}
+        -- Seeded rows are synthetic and may never become a public number.
+        -- The table carries an index on (source, category) for exactly this
+        -- filter; leaving it off let demo data into a figure that gets signed,
+        -- bonded and settled on chain.
+        AND li.source = 'vision'
         AND r.status IN ('claimable', 'claimed')
         AND li.created_at >= ${ts(start)}
         AND li.created_at <  ${ts(end)}

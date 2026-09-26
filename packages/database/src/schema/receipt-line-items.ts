@@ -17,9 +17,11 @@ import { receipts } from './receipts';
  *
  * - **Anything said about other people filters on `source = 'vision'`.** The
  *   market median, the observation count, "shoppers paid X" — these are claims
- *   about strangers' receipts, and a seeded row is not one. `lib/market` is the
- *   only place that computes them, and it is the only place that needs the
- *   filter.
+ *   about strangers' receipts, and a seeded row is not one. Two places compute
+ *   them: `lib/market`, and `lib/matched-index`, which feeds a number that is
+ *   signed, bonded and settled on chain. The second one shipped without the
+ *   filter — this note used to say `lib/market` was "the only place that needs
+ *   it", and that sentence is how it got missed.
  * - **A user's own ledger shows their own rows, whatever the source.** Seeds
  *   exist so a demo wallet has a basket; filtering them out of that wallet's
  *   own history would leave the demo blank, which is the opposite of the
