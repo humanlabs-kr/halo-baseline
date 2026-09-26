@@ -64,8 +64,11 @@ export function tornqvist(relatives: readonly Relative[]): number {
  * settlement. A float crossing an ABI boundary is a rounding argument waiting
  * to happen, and the strike it is compared against is an integer too.
  *
- * Rounds half away from zero so that a rise and an equal fall round to equal
- * magnitudes — banker's rounding here would bias a long run of small moves.
+ * Rounds half away from zero rather than to even, so a long run of small moves
+ * is not biased in one direction. Worth knowing that the boundary itself is
+ * barely reachable: a decimal ratio almost never lands a basis-point figure
+ * exactly on .5 once it has been through a double, so in practice this is a
+ * statement about the rule rather than about a case that occurs.
  */
 export function toBasisPoints(ratio: number): number {
   if (!Number.isFinite(ratio) || ratio <= 0) return Number.NaN;
