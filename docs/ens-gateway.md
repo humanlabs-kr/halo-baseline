@@ -136,7 +136,19 @@ read the name.
 
 ## The name
 
-`jp.halo.eth` does not resolve in a wallet yet, and the reason is not ours:
-`.eth` registration on Sepolia is currently broken for everybody. The trace is
-in `ens-sepolia-status.md`. Pointing the resolver at a node is one
-`registry.setResolver` call on the day one is available.
+`halo` is registered to us on **ENSv2** (Sepolia) and
+`ETHRegistry.setResolver` points it at this resolver, so
+`rice.jp.halo.eth` reaches it through ENS's own `UniversalResolver` with no
+per-series registration — see `ens-sepolia-status.md` for the registry tree and
+the offsets that prove it is being walked.
+
+What is *not* live is this route. The `OffchainLookup` hands a client
+`https://api.halo.humanlabs.world/v1/ens/gateway`, and the deployed worker
+predates this branch, so that URL answers 404 today. Everything either side of
+it is in place: the name resolves, the resolver reverts correctly, both signer
+keys are trusted on chain, and both GitHub Environments carry the secret. A
+deploy closes it.
+
+Until then `scripts/ens-ccip-proof.ts` supplies the gateway inline, and the
+bytes it produces are the bytes this route produces — same `gatewayDigest`,
+same key, same encoding.

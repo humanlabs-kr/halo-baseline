@@ -43,6 +43,17 @@ import {
 
 const RESOLVER = '0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7' as const;
 const ORACLE = '0x7AD9178D02a50d6B8Ba34891fE45fF00F1fc8224' as const;
+
+/**
+ * ENSv2 on Sepolia. Addresses from docs.ens.domains/learn/deployments, which
+ * is the only source that tracks the redeploys — the deployment folders in
+ * GitHub are stale and disagree with the chain.
+ */
+const ETH_REGISTRY = '0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E' as const;
+/** Same address as mainnet. The v2 implementation walks the registry tree. */
+const UNIVERSAL_RESOLVER = '0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe' as const;
+/** Our own subname registry, hanging under `halo`. */
+const COUNTRY_REGISTRY = '0x02CcD776Fb10DA512D098C2B6dF79FEc5948CeDa' as const;
 const RPC = process.env.SEPOLIA_RPC ?? 'https://ethereum-sepolia-rpc.publicnode.com';
 
 /** `jp.halo.eth`. The epoch is fixed on chain, not in the name, for this pass. */
@@ -59,6 +70,23 @@ const RESOLVER_ABI = parseAbi([
   'error StaleResponse()',
   'error UnknownSigner()',
   'error GatewayDisagreesWithOracle(int256 signed, int256 onChain)',
+]);
+
+const REGISTRY_ABI = parseAbi([
+  'function getResolver(string label) view returns (address)',
+  'function getSubregistry(string label) view returns (address)',
+  'function ownerOf(uint256 tokenId) view returns (address)',
+  'function roles(uint256 resource, address account) view returns (uint256)',
+]);
+
+const UNIVERSAL_ABI = parseAbi([
+  'function findResolver(bytes name) view returns (address, bytes32, uint256)',
+  'function resolve(bytes name, bytes data) view returns (bytes, address)',
+  // Declared here too. viem decodes a revert against the ABI of the call that
+  // produced it, so leaving it out turns a correct OffchainLookup into an
+  // undecodable selector.
+  'error OffchainLookup(address sender, string[] urls, bytes callData, bytes4 callbackFunction, bytes extraData)',
+  'error ResolverNotFound(bytes name)',
 ]);
 
 const ORACLE_ABI = parseAbi([
@@ -287,6 +315,92 @@ async function main() {
   } catch (err) {
     const what = errorName(err);
     check(what.startsWith('UnknownSigner'), 'callback refuses an unknown signer', what);
+  }
+
+  /* 5.5 — ENSv2: the resolver is reachable by name, not just by address.
+   *
+   * Everything above talks to the resolver directly. That proves the contract
+   * and says nothing about whether ENS will route a name to it. v2 replaced the
+   * flat namehash registry with a tree of registries, so this is the part that
+   * had to change — and the offsets below are the evidence the tree is really
+   * being walked rather than one resolver answering for everything.
+   */
+  console.log('');
+  console.log('ENSv2 — the registry tree');
+
+  const registered = await raw.readContract({
+    address: ETH_REGISTRY,
+    abi: REGISTRY_ABI,
+    functionName: 'getResolver',
+    args: ['halo'],
+  });
+  check(
+    registered.toLowerCase() === RESOLVER.toLowerCase(),
+    'halo on the ENSv2 ETHRegistry points at our resolver',
+    registered,
+  );
+
+  const sub = await raw.readContract({
+    address: ETH_REGISTRY,
+    abi: REGISTRY_ABI,
+    functionName: 'getSubregistry',
+    args: ['halo'],
+  });
+  check(
+    sub.toLowerCase() === COUNTRY_REGISTRY.toLowerCase(),
+    'halo owns a subname registry of our own',
+    sub,
+  );
+
+  /**
+   * An exact hit returns offset 0. Anything else is the number of bytes of
+   * name that had to be given up before a resolver was found — so the offset
+   * says *which ancestor* answered, and that is the whole hierarchy in one
+   * number.
+   */
+  const expected: [string, number, string][] = [
+    ['halo.eth', 0, 'its own'],
+    ['jp.halo.eth', 0, 'its own, from our subregistry'],
+    ['ng.halo.eth', 0, 'its own, delegated away'],
+    ['kr.halo.eth', 3, 'wildcard from halo - no country registered'],
+    ['rice.jp.halo.eth', 5, 'wildcard from jp, not from halo'],
+    ['2026q4.rice.jp.halo.eth', 12, 'wildcard from jp, two levels up'],
+  ];
+
+  for (const [name, wantOffset, why] of expected) {
+    const [addr, , offset] = await raw.readContract({
+      address: UNIVERSAL_RESOLVER,
+      abi: UNIVERSAL_ABI,
+      functionName: 'findResolver',
+      args: [dnsEncode(name.split('.'))],
+    });
+    const ok = addr.toLowerCase() === RESOLVER.toLowerCase() && Number(offset) === wantOffset;
+    check(ok, `${name.padEnd(24)} offset ${offset}`, why);
+  }
+
+  /**
+   * And the lookup reverts through ENS's own entry point, not ours.
+   *
+   * A client that knows nothing about Halo calls UniversalResolver and gets an
+   * OffchainLookup pointing at ENS's batch gateway, which then calls ours. That
+   * is the difference between a resolver that works and a *name* that works.
+   */
+  try {
+    await raw.readContract({
+      address: UNIVERSAL_RESOLVER,
+      abi: UNIVERSAL_ABI,
+      functionName: 'resolve',
+      args: [dnsEncode(['rice', 'jp', 'halo', 'eth']), inner],
+    });
+    check(false, 'UniversalResolver defers offchain', 'it returned instead');
+  } catch (err) {
+    const data = reverted(err)?.data;
+    const urls = data?.errorName === 'OffchainLookup' ? (data.args?.[1] as string[]) : null;
+    check(
+      data?.errorName === 'OffchainLookup',
+      'UniversalResolver defers offchain for rice.jp.halo.eth',
+      urls ? `via ENS batch gateway ${urls[0]}` : errorName(err).slice(0, 80),
+    );
   }
 
   /* 6 — the whole loop, driven by a standard client rather than by this script.

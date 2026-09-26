@@ -69,45 +69,34 @@ this repository prevents that.
 
 ---
 
-## 3. `halo.eth` — **DECIDED: ship the resolver; the name is blocked upstream**
+## 3. `halo.eth` — **RESOLVED: registered on ENSv2, resolver attached**
 
-`HaloResolver` is deployed on Sepolia and the whole ENSIP-10 plus EIP-3668 loop
-is verified against it by a standards-compliant client — viem reads the
-`OffchainLookup`, fetches, and calls `resolveCallback` back on the deployed
-contract on its own. That is the integration, and the node it hangs off changes
-nothing about it.
+`halo` is ours on **ENSv2** (Sepolia), expiring 2027-09-19, and
+`ETHRegistry.setResolver` now points it at `HaloResolver`. Under it sits our
+own `UserRegistry` subname registry with `jp` minted to us and `ng` delegated
+to a partner holding `ROLE_SET_RESOLVER` and nothing else.
 
-Attaching it was expected to be five minutes through `app.ens.domains`. It is
-not: **`.eth` registration on Sepolia is currently broken for everybody.** A
-commitment was made with the current controller's own `makeCommitment`,
-committed on chain, and aged past `minCommitmentAge`; `register` then dies inside
-`BaseRegistrar` on `require(controllers[msg.sender])`, because ENS's own current
-`ETHRegistrarController` is not authorised there. The wrapped path fails one
-level down for the same reason. Full trace in `ens-sepolia-status.md`.
+`HaloResolver` needed **no code change**: ENSv2 kept `IExtendedResolver` and
+kept EIP-3668. What changed is how a name finds a resolver — a tree of
+registries keyed by label rather than one flat registry keyed by namehash.
 
-**What was traded away:** `jp.halo.eth` does not resolve in a wallet today. The
-way through that does not depend on ENS is claiming a domain we already own
-through the DNSSEC registrar — deliberately not done, because enabling DNSSEC on
-a zone serving a live app to 417,000 people is not a 3am change for a demo
-detail.
+**What was traded away:** nothing, for the integration. The gateway URL in the
+`OffchainLookup` still 404s until this branch deploys, so a wallet resolves the
+name to a resolver and the resolver to a gateway that is not up yet. That is a
+deploy step and it is named in `deployed.md`.
 
-### The original note
+### The original note, kept because the conclusion was wrong
 
-**Blocked:** the ENS demo resolving live. Not the resolver, which does not care
-which node it hangs off.
+The earlier entry said registering on Sepolia was blocked and read the evidence
+as a defect in ENS's testnet. It was a **deliberate ENSv2 migration**: the v2
+deployment took ownership of the v1 BaseRegistrar and replaced its controllers
+with `ETHRenewerV1` and `Graveyard`, leaving renewal and retirement and closing
+new v1 registration on purpose. The trace was right and the cause was wrong,
+and nothing on chain could have said so — the two addresses only have meaning
+in ENS's published deployment list. See `ens-sepolia-status.md`.
 
-Mainnet `halo.eth` belongs to `0x7265a6…E176`, whose primary name is
-`master.eth`, until 2027-08-21. **It is not ours and must not appear on a slide
-as though it were.**
-
-Sepolia `halo.eth` is expired and available, but registering it is blocked on
-finding the current registrar controller — see `docs/ens-sepolia-status.md`
-for the full trail. The cheapest way through is `app.ens.domains` on Sepolia
-with the wallet we hold, which knows the controller without anyone having to
-find it.
-
-**If nobody decides:** point the resolver at any name the wallet already
-controls and rename the hierarchy. One line.
+Mainnet `halo.eth` belongs to `0x7265a6…E176` until 2027-08-21. **Still not
+ours and still must not appear on a slide as though it were.**
 
 ---
 

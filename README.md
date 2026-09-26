@@ -71,23 +71,49 @@ when they close:
 Reproduce with `forge test` in `packages/hedge` (119 tests), or read the
 transaction list in [`docs/deployed.md`](./docs/deployed.md).
 
-### ENS
+### ENS — built on ENSv2 (Sepolia)
 
-`HaloResolver` is deployed at
-[`0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7`](https://sepolia.etherscan.io/address/0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7).
+`halo` is registered to us on **ENSv2** and carries `HaloResolver`
+([`0xffD9eBCb…`](https://sepolia.etherscan.io/address/0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7)).
+Under it hangs **our own subname registry**
+([`0x02CcD776…`](https://sepolia.etherscan.io/address/0x02CcD776Fb10DA512D098C2B6dF79FEc5948CeDa)),
+a `UserRegistry` deployed through `VerifiableFactory`.
 
 | What | File and line |
 |---|---|
 | ENSIP-10 `resolve(bytes,bytes)` — the wildcard entry point | [`HaloResolver.sol:109`](./packages/hedge/src/HaloResolver.sol#L109) |
 | EIP-3668 `OffchainLookup` — a revert that is a success path | [`HaloResolver.sol:44`](./packages/hedge/src/HaloResolver.sol#L44) |
 | The callback, and the check that re-reads the oracle | [`HaloResolver.sol:142`](./packages/hedge/src/HaloResolver.sol#L142) |
-| The CCIP-Read gateway | [`apps/api/src/routes/client/ens-gateway.ts`](./apps/api/src/routes/client/ens-gateway.ts) |
-| The digest both languages have to agree on, byte for byte | [`gateway-digest.ts`](./apps/api/src/lib/matched-index/gateway-digest.ts) |
+| The CCIP-Read gateway | [`ens-gateway.ts`](./apps/api/src/routes/client/ens-gateway.ts) |
+| The digest both languages must agree on, byte for byte | [`gateway-digest.ts`](./apps/api/src/lib/matched-index/gateway-digest.ts) |
+| Every ENSv2 assertion below, as a runnable script | [`ens-ccip-proof.ts`](./apps/api/scripts/ens-ccip-proof.ts) |
 
-**A signature proves who spoke, not that the number is true.** Every other
+**The offsets are the integration.** `UniversalResolver.findResolver` returns
+where in the name a resolver was found — 0 is an exact hit, anything else names
+the ancestor that answered. So the whole registry tree is legible in one column:
+
+| Name | Offset | |
+|---|---|---|
+| `halo.eth` | 0 | its own |
+| `jp.halo.eth` | 0 | its own, minted in our subregistry |
+| `ng.halo.eth` | 0 | its own, **delegated away** |
+| `kr.halo.eth` | 3 | wildcard from `halo` — no such country |
+| `rice.jp.halo.eth` | 5 | wildcard from **`jp`** |
+| `2026q4.rice.jp.halo.eth` | 12 | wildcard from `jp`, two levels up |
+
+If the tree were not really being walked, `rice.jp.halo.eth` would fall back to
+`halo` at offset 8. It falls back to `jp` at 5, which is only possible because
+`jp` is a real entry in a registry we deployed.
+
+**`ng` is genuinely given away.** Its holder has `ROLE_SET_RESOLVER` (`1 << 24`)
+and nothing else; we hold **zero** roles on it and cannot point it back. A data
+partner can route their own country and we cannot overrule them. That is what
+Enhanced Access Control buys over an owner mapping, and it is the thing a URL
+path cannot do.
+
+**And a signature proves who spoke, not that the number is true.** Every other
 offchain resolver stops there. For a finalised epoch ours re-reads
-`HaloIndexOracle` and refuses a signed value that disagrees — verified against
-the deployed contract, by viem, which follows the `OffchainLookup` on its own:
+`HaloIndexOracle` and refuses a signed value that disagrees:
 
 ```
 pnpm --filter @halo/api exec tsx scripts/ens-ccip-proof.ts
@@ -96,11 +122,15 @@ pnpm --filter @halo/api exec tsx scripts/ens-ccip-proof.ts
 ```
 ok    callback accepts the signed answer                     312 bps
 ok    callback refuses a value the oracle disagrees with     GatewayDisagreesWithOracle(313, 312)
+ok    rice.jp.halo.eth         offset 5   wildcard from jp, not from halo
+ok    UniversalResolver defers offchain   via ENS batch gateway https://ccip-v3.ens.xyz
 ok    a standards-compliant client resolves the name         312 bps
 ```
 
-Every step is `eth_call`, so anyone can rerun it holding no funds.
-Notes: [`docs/ens-gateway.md`](./docs/ens-gateway.md).
+Every step is `eth_call`, so anyone can rerun it holding no funds. Notes:
+[`docs/ens-gateway.md`](./docs/ens-gateway.md), and the ENSv2 migration —
+including a conclusion we got wrong for a day — in
+[`docs/ens-sepolia-status.md`](./docs/ens-sepolia-status.md).
 
 ### The index the market settles on
 

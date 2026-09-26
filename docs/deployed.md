@@ -14,6 +14,10 @@ loop in one explorer without taking anything here on trust.
 | `HaloHook` | [`0xb8fd9d54093820e43Ca21B223468b78624198Ac4`](https://sepolia.etherscan.io/address/0xb8fd9d54093820e43Ca21B223468b78624198Ac4) |
 | `HaloResolver` | [`0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7`](https://sepolia.etherscan.io/address/0xffD9eBCb9Aa4d7556B755f8C30Fc317F86174Ae7) |
 | Uniswap v4 `PoolManager` | [`0xE03A1074c86CFeDd5C142C4F04F1a1536e203543`](https://sepolia.etherscan.io/address/0xE03A1074c86CFeDd5C142C4F04F1a1536e203543) |
+| `DemoRouter` | [`0xf3436d55eBBBDEC75b8a7594C7D9Fc837EEAdb11`](https://sepolia.etherscan.io/address/0xf3436d55eBBBDEC75b8a7594C7D9Fc837EEAdb11) |
+| Our ENSv2 country registry | [`0x02CcD776Fb10DA512D098C2B6dF79FEc5948CeDa`](https://sepolia.etherscan.io/address/0x02CcD776Fb10DA512D098C2B6dF79FEc5948CeDa) |
+| ENSv2 `ETHRegistry` | [`0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E`](https://sepolia.etherscan.io/address/0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E) |
+| ENSv2 `UniversalResolver` | [`0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe`](https://sepolia.etherscan.io/address/0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe) |
 
 **Look at the last four characters of the hook address.** `…8Ac4` — the low
 fourteen bits are `0x0AC4`, which is exactly
@@ -186,22 +190,56 @@ because a single gateway is a single point of failure — the deploy script quie
 passed an array of one. The contract was correct; the deployment was not. Fixed
 on chain and in the script.
 
+## ENSv2 — the name, the tree, and one name given away
+
+`halo` is registered to us on **ENSv2** (expires 2027-09-19) and now carries
+`HaloResolver`. The resolver needed no code change: v2 kept
+`IExtendedResolver` — `resolve(bytes,bytes)`, `0x9061b923` — and kept EIP-3668
+unchanged. What v2 replaced is how a name *finds* a resolver: a tree of
+registries keyed by label, instead of one flat registry keyed by namehash.
+
+| Step | Transaction |
+|---|---|
+| Point `halo` at `HaloResolver` on the ENSv2 registry | [`0xa10a1218…`](https://sepolia.etherscan.io/tx/0xa10a1218476eb7da19b6a2b34b9e230a9b3dd61804a84cbad159d4f3a883100b) |
+| Deploy our own subname registry (`VerifiableFactory` → `UserRegistry`) | [`0x75cb75b6…`](https://sepolia.etherscan.io/tx/0x75cb75b65d53d26767da8dca5dd08e062514114167ec5394ae815837e0fbc0a0) |
+| Hang it under `halo` | [`0xd9856109…`](https://sepolia.etherscan.io/tx/0xd985610967441d999e46047099697bf6722a4f236d60223690bb45192153b476) |
+| Mint `jp`, ours | [`0x857799d1…`](https://sepolia.etherscan.io/tx/0x857799d106b3ecef136dc62f1c671b85ceaee8dfbe36c5fd766fa44f4ee63616) |
+| Mint `ng`, **delegated away** | [`0x56b68ec1…`](https://sepolia.etherscan.io/tx/0x56b68ec1ba0995308896ce4b325a58e5f27da3b66b76f2ce80ae7c8f54a779a1) |
+
+**The offsets are the proof the tree is real.** `findResolver` returns where in
+the name the resolver was found; zero is an exact hit, anything else names the
+ancestor that answered:
+
+| Name | Offset | |
+|---|---|---|
+| `halo.eth` | 0 | its own |
+| `jp.halo.eth` | 0 | its own, from our subregistry |
+| `ng.halo.eth` | 0 | its own, delegated |
+| `kr.halo.eth` | 3 | wildcard from `halo` — no such country |
+| `rice.jp.halo.eth` | 5 | wildcard from **`jp`** |
+| `2026q4.rice.jp.halo.eth` | 12 | wildcard from `jp`, two levels up |
+
+If the registry tree were not being walked, `rice.jp.halo.eth` would fall back
+to `halo` at offset 8. It falls back to `jp` at 5, which is only possible
+because `jp` is a real entry in a registry we deployed.
+
+**`ng` is genuinely handed over**, not staged. The holder has
+`ROLE_SET_RESOLVER` (`1 << 24`) and nothing else; we hold **zero** roles on it
+and cannot point it back. That is the difference Enhanced Access Control makes
+over an owner mapping, and it is the thing a URL path cannot do.
+
+`UniversalResolver.resolve('rice.jp.halo.eth')` reverts `OffchainLookup`
+pointing at ENS's own batch gateway `https://ccip-v3.ens.xyz`, which then calls
+ours — so a client that has never heard of Halo reaches our gateway by name
+alone.
+
 ## Still not done, and why
 
-**`jp.halo.eth` does not resolve in a wallet.** Not our defect: `.eth`
-registration on Sepolia is currently broken for everybody, because ENS's own
-current `ETHRegistrarController` is not authorised on the BaseRegistrar it
-calls. A commitment was made and aged properly; `register` dies on
-`require(controllers[msg.sender])`. The full trace is in
-`ens-sepolia-status.md`. Pointing the resolver at a node is one
-`registry.setResolver` call on the day one exists.
-
-**The gateway route is not deployed.** The secret is set in both GitHub
-Environments and wired into the deploy workflow, so this is a deploy away rather
-than a code change — but until the branch ships, the URLs in the
-`OffchainLookup` answer 404. The proof script supplies the gateway inline for
-exactly this reason, and the bytes it produces are the bytes that route
-produces.
+**The gateway route is not deployed.** `POST /v1/ens/gateway` is committed here
+and the secret is set in both GitHub Environments, but the running worker
+predates it, so the URLs in the `OffchainLookup` answer 404 today. The proof
+script supplies the gateway inline for that reason, and the bytes it produces
+are the bytes that route produces. A deploy, not a code change.
 
 **Reaching the app's users.** Sepolia is not where the 417,000 are. That gap is
 decision #1 in `open-decisions.md` and it is a bridge.
