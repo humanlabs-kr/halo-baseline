@@ -46,6 +46,9 @@ contract HaloIndexOracleTest is Test {
         oracle.openEpoch(SERIES, EPOCH, RULES, closesAt, CHALLENGE, VOID);
         oracle.setMinBond(SERIES, 1 ether);
         oracle.setOpenInterest(oi);
+        // 1 wei per unit at risk, so the arithmetic below reads directly.
+        // Production sets a real rate; see the field's comment.
+        oracle.setBondPerCollateralUnit(SERIES, 1);
         vm.stopPrank();
 
         vm.deal(publisher, 1000 ether);

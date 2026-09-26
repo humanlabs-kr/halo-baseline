@@ -94,6 +94,7 @@ contract HaloIndexOracle {
     );
     event Finalized(bytes32 indexed seriesId, uint64 indexed epoch, int256 valueBps);
     event Voided(bytes32 indexed seriesId, uint64 indexed epoch);
+    event BondRateSet(bytes32 indexed seriesId, uint256 weiPerUnit);
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -137,6 +138,28 @@ contract HaloIndexOracle {
 
     /// @notice How many times the open interest a publication must be backed by.
     uint256 public constant BOND_MULTIPLE = 2;
+
+    /**
+     * Wei of bond per smallest unit of collateral at risk, per series.
+     *
+     * THIS EXISTS BECAUSE TWO UNITS MEET HERE AND ONLY ONE OF THEM IS OBVIOUS.
+     * Bonds are posted in native currency; open interest is denominated in the
+     * market's collateral token, which is six-decimal USDC on every chain we
+     * care about. Multiplying one by the other and calling the result wei is
+     * not a rounding problem — at 1,000,000 USDC of open interest it asks for
+     * 2e12 wei, which is two millionths of an ether, and the deterrent the
+     * whole mechanism is built on quietly becomes nothing.
+     *
+     * So the conversion is explicit, per series, and set by governance. It has
+     * to be maintained as the collateral's price moves, and a stale rate is a
+     * visible parameter rather than an invisible cast.
+     *
+     * Plain wei, not fixed point. For six-decimal USDC at $3,000 an ether this
+     * is about 3.33e8 — one base unit is a millionth of a dollar. A scaling
+     * factor here would save a few digits and cost every future reader a
+     * derivation, on the one parameter that must not be set wrong.
+     */
+    mapping(bytes32 => uint256) public bondPerCollateralUnit;
 
     /// @notice Floor per series, for publishing into a book with nothing in it.
     mapping(bytes32 => uint256) public minBond;
@@ -267,8 +290,15 @@ contract HaloIndexOracle {
      */
     function requiredBond(bytes32 seriesId, uint64 epoch) public view returns (uint256) {
         uint256 floor_ = minBond[seriesId];
-        if (address(openInterest) == address(0)) return floor_;
-        uint256 scaled = openInterest.openInterestOf(seriesId, epoch) * BOND_MULTIPLE;
+
+        uint256 rate = bondPerCollateralUnit[seriesId];
+        // No source, or no rate, means there is nothing to scale against and
+        // the floor is the whole requirement. Returning the floor rather than
+        // zero keeps an unconfigured series from being free to publish into.
+        if (address(openInterest) == address(0) || rate == 0) return floor_;
+
+        uint256 atRisk = openInterest.openInterestOf(seriesId, epoch);
+        uint256 scaled = atRisk * rate * BOND_MULTIPLE;
         return scaled > floor_ ? scaled : floor_;
     }
 
@@ -463,5 +493,14 @@ contract HaloIndexOracle {
 
     function setOpenInterest(IOpenInterest source) external onlyGovernance {
         openInterest = source;
+    }
+
+    /// @notice Wei of bond required per unit of collateral at risk. See the field.
+    function setBondPerCollateralUnit(bytes32 seriesId, uint256 weiPerUnit)
+        external
+        onlyGovernance
+    {
+        bondPerCollateralUnit[seriesId] = weiPerUnit;
+        emit BondRateSet(seriesId, weiPerUnit);
     }
 }
