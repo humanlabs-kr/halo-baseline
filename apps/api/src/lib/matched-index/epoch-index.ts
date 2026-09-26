@@ -14,7 +14,7 @@
  * rules say; turning it into a settlement means posting a bond and opening a
  * challenge window, which is a decision rather than a query.
  */
-import { type Database, receiptLineItems, receipts, sql } from '@halo/database';
+import { type Database, pointClaims, receiptLineItems, receipts, sql } from '@halo/database';
 
 import { itemKeyOf } from './identity';
 import { computeIndex } from './aggregate';
@@ -65,6 +65,14 @@ export type EpochIndexResult = {
   eligible: boolean;
   reasons: string[];
   people: number;
+  /**
+   * How many of those people are a verified human rather than a wallet.
+   *
+   * This number is what the Sybil floor is actually worth. `people` counts
+   * distinct person keys, and a key that came from an address is only as
+   * scarce as an address, which is to say free.
+   */
+  verifiedPeople: number;
   costToMoveOnePercent: number;
   root: string;
   leaves: ReturnType<typeof buildSnapshot>['leaves'];
@@ -114,15 +122,52 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
 
   const [previousRows, currentRows] = await Promise.all([pull(from, splitAt), pull(splitAt, to)]);
 
-  /**
-   * A stable pseudonym per person, salted per series.
-   *
-   * Salting with the series means the same wallet is a different pseudonym in
-   * a different country's leaf set, so publishing two of them does not let
-   * anyone stitch a cross-country shopping history together.
-   */
   const series = seriesId(country, '');
-  const personOf = (address: string) => `${series.slice(2, 10)}:${address.slice(2, 14)}`;
+
+  /**
+   * One person, and the whole integrity model rests on what that means.
+   *
+   * `PERSON_CAP` allows a person one observation per item, and the eligibility
+   * floors are counted in people. Both of those are only worth something if a
+   * person is expensive to create. **Keyed on a wallet address they are worth
+   * nothing** — an attacker with a script has as many wallets as they like, and
+   * `costToMoveOnePercent` would be reporting the cost of the receipts alone.
+   *
+   * Halo already verifies World ID server-side for point claims, and an
+   * orb-level nullifier is a stable pseudonym for a *human* across every wallet
+   * they use. So where one exists it is the person key, and two wallets
+   * belonging to the same verified human collapse into one person rather than
+   * counting twice.
+   *
+   * ORB ONLY, DELIBERATELY. Device-level World ID attests a phone, not a
+   * person, and phones are farmable. Treating device the same as orb would put
+   * the hole straight back while looking like it had been closed.
+   *
+   * Addresses still key the rest, because the corpus spans three chains and
+   * only World carries World ID. That is a real limit, so it is measured rather
+   * than glossed: `verifiedPeople` says how much of the floor is load-bearing.
+   *
+   * Salted per series either way. The comment this replaces claimed the salt
+   * was what stopped two published leaf sets being stitched into one shopping
+   * history, and that was never true: **the leaf set carries no person at
+   * all** — a leaf is (outlet, item, price, expenditure, currency, observedAt).
+   * The pseudonym is internal, used for capping and for counting people, and
+   * the salt only means a compromised internal key is not a cross-country one.
+   *
+   * What that costs is worth stating: a challenger recomputing a published
+   * epoch **cannot verify the per-person cap from the leaves alone**, because
+   * the leaves do not say who. They can check the aggregation, the trim and the
+   * ratio clamps. Publishing pseudonyms would make the cap checkable and would
+   * also publish how many receipts each person uploaded. That trade is
+   * deliberate and it is recorded in docs/index-methodology.md rather than
+   * being left for someone to discover.
+   */
+  const salt = series.slice(2, 10);
+  const humanOf = await verifiedHumans(db, [...previousRows, ...currentRows]);
+  const personOf = (address: string) => {
+    const nullifier = humanOf.get(address.toLowerCase());
+    return nullifier ? `${salt}:h:${nullifier.slice(2, 18)}` : `${salt}:w:${address.slice(2, 14)}`;
+  };
 
   const toObservations = (rows: Row[]): Observation[] => {
     const out: Observation[] = [];
@@ -157,7 +202,9 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
   );
   const clean = applyIntegrity(matched);
 
-  const distinctPeople = new Set([...cappedPrevious, ...cappedCurrent].map((o) => o.person)).size;
+  const allPeople = new Set([...cappedPrevious, ...cappedCurrent].map((o) => o.person));
+  const distinctPeople = allPeople.size;
+  const verifiedPeople = [...allPeople].filter((p) => p.includes(':h:')).length;
   const eligibility = checkEligibility(clean, distinctPeople);
   const currency = currentRows[0]?.currency ?? previousRows[0]?.currency ?? null;
   const snapshot = buildSnapshot([...cappedPrevious, ...cappedCurrent], currency ?? 'XXX');
@@ -189,8 +236,39 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
     eligible: eligibility.eligible,
     reasons: eligibility.reasons,
     people: distinctPeople,
+    verifiedPeople,
     costToMoveOnePercent: costToMoveOnePercent(clean),
     root: snapshot.root,
     leaves: snapshot.leaves,
   };
+}
+
+/**
+ * Wallet to orb-level World ID nullifier, for the wallets in this window only.
+ *
+ * One query rather than a lateral join per row: `point_claims.user_address` is
+ * a foreign key and Postgres does not index those automatically, so a
+ * per-row lookup across a five-thousand-row window would be five thousand
+ * sequential scans. The set of distinct wallets in a window is far smaller
+ * than the set of rows.
+ *
+ * A wallet with several claims yields the same nullifier every time — that is
+ * what a nullifier is — so which one is picked does not matter.
+ */
+async function verifiedHumans(db: Database, rows: readonly Row[]): Promise<Map<string, string>> {
+  const wallets = [...new Set(rows.map((r) => r.user_address).filter(Boolean))];
+  if (wallets.length === 0) return new Map();
+
+  const found = (await db.execute(sql`
+    SELECT DISTINCT ON (pc.user_address)
+           pc.user_address,
+           pc.nullifier_hash
+    FROM ${pointClaims} pc
+    WHERE pc.user_address IN ${sql`(${sql.join(wallets.map((w) => sql`${w}`), sql`, `)})`}
+      AND pc.verification_level = 'orb'
+      AND pc.nullifier_hash <> ''
+    ORDER BY pc.user_address, pc.created_at ASC
+  `)) as unknown as { user_address: string; nullifier_hash: string }[];
+
+  return new Map(found.map((r) => [r.user_address.toLowerCase(), r.nullifier_hash]));
 }

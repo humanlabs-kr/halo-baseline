@@ -80,6 +80,8 @@ const buildRoute = createRoute({
         eligible: z.boolean(),
         reasons: z.array(z.string()),
         people: z.number(),
+        /** Of those, how many are a verified human rather than a wallet. */
+        verifiedPeople: z.number(),
         costToMoveOnePercent: z.number(),
         root: z.string(),
         leaves: z.array(leafSchema).optional(),

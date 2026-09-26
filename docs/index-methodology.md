@@ -112,7 +112,7 @@ Each is a defence against a specific attack, and is named that way.
 
 | Rule | Value | What it stops |
 |---|---|---|
-| Per-person cap | 1 per item per period | One account being a price series |
+| Per-person cap | 1 per item per period | One **person** being a price series |
 | Distinct people per item | 3 | Sybil across addresses on one item |
 | Distinct outlets per series | 3 | Colluding with one shop |
 | Distinct people per series | 30 | A small ring being the sample |
@@ -127,6 +127,34 @@ those through is how a labelling change settles a contract.
 
 Trimming is symmetric **in logs**. A halving and a doubling are the same size
 of move, and trimming in levels cuts more of one tail than the other.
+
+### What "one person" means, and what it is worth
+
+Five of the seven rules above are counted in people. **All five are worth
+exactly as much as a person is expensive to create**, and for a long time this
+pipeline keyed a person on their wallet address — which is to say, on nothing.
+An attacker with a script has as many wallets as they like, so the per-person
+cap capped nothing and `costToMoveOnePercent` was reporting the price of the
+receipts alone.
+
+A person is now keyed on their **orb-level World ID nullifier** where one
+exists. A nullifier is stable for a human across every wallet they use, so two
+wallets belonging to the same verified person collapse into one person instead
+of counting twice. Halo has verified World ID server-side for point claims
+since long before this, so the attestation was already in the corpus; it simply
+was not reaching the index.
+
+**Orb only.** Device-level World ID attests a phone, not a person, and phones
+are farmable. Counting device the same as orb would put the hole back while
+looking like it had been closed.
+
+**The coverage is partial and the number says so.** Only World carries World
+ID, and the corpus spans three chains, so a wallet with no orb attestation
+still keys a person by address. Every published epoch therefore carries
+`verifiedPeople` beside `personCount`, and the ratio between them is how much
+of the Sybil floor is load-bearing. An epoch where they are far apart is an
+epoch whose floors are softer than they look, and nobody should have to infer
+that.
 
 ---
 
@@ -155,6 +183,7 @@ leavesRoot   Merkle root over the observations
 leavesCID    IPFS CID of the complete leaf set
 rulesHash    this document and its parameters, committed at open
 personCount  distinct people, as a count
+verifiedPeople  of those, how many are an orb-verified human
 ```
 
 **The leaf set, not just the root.** A Merkle root proves an observation was
@@ -168,6 +197,19 @@ personal data. The per-person cap is enforced upstream and what gets committed
 is the *count* of people, not a list of pseudonyms somebody can correlate
 against a wallet later. Verifiability and privacy stop fighting once identity
 is removed rather than obscured.
+
+**And that has a price, which is easy not to mention.** A challenger who
+fetches the leaf set can recompute the matching, the trim, the ratio clamps and
+the aggregation — but they **cannot verify the per-person cap**, because the
+leaves do not say who. They have to take `personCount` and `verifiedPeople` on
+the publisher's word, backed by the bond rather than by arithmetic.
+
+Publishing salted pseudonyms would make the cap checkable. It would also
+publish how many receipts each person uploads, which for a small country series
+is close to publishing their shopping frequency. The trade taken here is
+privacy over that one check; the bond and the challenge window are what stand
+behind the part that cannot be recomputed. Anyone who thinks that is the wrong
+trade is disagreeing with a decision, not finding a bug.
 
 ---
 
