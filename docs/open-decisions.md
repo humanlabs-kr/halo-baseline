@@ -93,17 +93,30 @@ needs a number.
 
 ---
 
-## 6. The publication bond floor
+## 6. The publication bond — a floor and a conversion rate
 
-**Blocked:** `setMinBond` per series.
+**Blocked:** `setMinBond` and `setBondPerCollateralUnit`, per series.
 
-The bond already scales with open interest — `requiredBond` reads it from the
-vault and demands twice it. `minBond` is the floor for publishing into an
-empty book, and a floor of zero means the record is free to pollute before
-anyone has a position.
+Two numbers, and the second one is the dangerous one.
 
-**If nobody decides:** a nominal floor, raised before any market carries real
-money.
+`minBond` is the floor for publishing into an empty book. A floor of zero
+means the record is free to pollute before anyone holds a position.
+
+`bondPerCollateralUnit` converts open interest, which is denominated in the
+market's collateral token, into the native currency a bond is posted in. It
+has to be maintained as the collateral's price moves. **A rate set too low
+makes the whole publish-and-challenge design decorative** — this was a live
+bug until the lifecycle test caught it, where the two units were being
+multiplied together directly and a million dollars of open interest asked for
+two millionths of an ether.
+
+For six-decimal USDC at $3,000 an ether the rate is about `3.33e8`. It is
+plain wei rather than fixed point precisely so that a wrong value is visible
+by inspection.
+
+**If nobody decides:** an unset rate falls back to the floor, so publishing
+stays possible and stops scaling with what is at stake. That is safe to demo
+and must not reach a market holding real money.
 
 ---
 
