@@ -526,5 +526,16 @@
   "Write to us and you can have a copy of your data, a correction to it, or its deletion. Two things cannot be undone: a point claim already written to a blockchain, and a line already pooled into a published median, which by then is part of a figure with no way back to you.": "Write to us and you can have a copy of your data, a correction to it, or its deletion. Two things cannot be undone: a point claim already written to a blockchain, and a line already pooled into a published median, which by then is part of a figure with no way back to you.",
   "10. Children": "10. Children",
   "Halo is not for anyone under 18, and we do not knowingly collect anything from a child.": "Halo is not for anyone under 18, and we do not knowingly collect anything from a child.",
-  "If this policy changes in a way that matters, Halo will tell you inside the app.": "If this policy changes in a way that matters, Halo will tell you inside the app."
+  "If this policy changes in a way that matters, Halo will tell you inside the app.": "If this policy changes in a way that matters, Halo will tell you inside the app.",
+  "Cover for {{months}} months": "Cover for {{months}} months",
+  "If {{item}} keeps rising": "If {{item}} keeps rising",
+  "Covered": "Covered",
+  "Pays from": "Pays from",
+  "You break even at": "You break even at",
+  "Full payout at": "Full payout at",
+  "You pay": "You pay",
+  "What comes back to you": "What comes back to you",
+  "{{item}} up {{change}}": "{{item}} up {{change}}",
+  "The most you can lose is what you pay now. There is nothing more to pay later.": "The most you can lose is what you pay now. There is nothing more to pay later.",
+  "Pay {{amount}}": "Pay {{amount}}"
 }

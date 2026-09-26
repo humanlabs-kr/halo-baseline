@@ -15,6 +15,7 @@ const Receipts = lazy(() => import('@/pages/Receipts'));
 const Ledger = lazy(() => import('@/pages/Ledger'));
 const ScanResult = lazy(() => import('@/pages/ScanResult'));
 const LedgerItem = lazy(() => import('@/pages/LedgerItem'));
+const CoverPreview = lazy(() => import('@/pages/CoverPreview'));
 const ReceiptDetail = lazy(() => import('@/pages/ReceiptDetail'));
 const Login = lazy(() => import('@/pages/Login'));
 const Onboarding = lazy(() => import('@/pages/Onboarding'));
@@ -129,6 +130,11 @@ export default function App() {
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/payouts" element={<Payouts />} />
         <Route path="/onboarding" element={<Onboarding />} />
+
+        {/* Development-only. The cover flow cannot be reached without an
+            on-chain position, so without a harness it would be the one screen
+            that never gets looked at before shipping. */}
+        {import.meta.env.DEV && <Route path="/preview/cover" element={<CoverPreview />} />}
 
         {isAuthenticated ? (
           <>
