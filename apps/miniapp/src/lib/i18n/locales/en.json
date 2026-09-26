@@ -537,5 +537,12 @@
   "What comes back to you": "What comes back to you",
   "{{item}} up {{change}}": "{{item}} up {{change}}",
   "The most you can lose is what you pay now. There is nothing more to pay later.": "The most you can lose is what you pay now. There is nothing more to pay later.",
-  "Pay {{amount}}": "Pay {{amount}}"
+  "Pay {{amount}}": "Pay {{amount}}",
+  "You have no cover yet": "You have no cover yet",
+  "Pays from {{strike}}, full at {{cap}}": "Pays from {{strike}}, full at {{cap}}",
+  "Settled at {{change}}": "Settled at {{change}}",
+  "Redeem": "Redeem",
+  "Locked while this month closes. Opens {{date}}.": "Locked while this month closes. Opens {{date}}.",
+  "Paid out": "Paid out",
+  "Paid out nothing": "Paid out nothing"
 }

@@ -1,5 +1,33 @@
 import { CoverSheet } from '@/components/ledger/CoverSheet';
+import { Positions, type Position } from '@/components/ledger/Positions';
 import { TopBar } from '@/components/ledger/TopBar';
+
+/**
+ * Every state the positions list has, side by side.
+ *
+ * Rendering only the happy one is how `frozen` ships as a dead button with no
+ * explanation beside it — the state nobody builds a fixture for is the state
+ * nobody looks at.
+ */
+const POSITIONS: Position[] = [
+  {
+    marketId: '0x1', itemName: 'Rice', currency: 'JPY', cover: 4000,
+    strikeBps: 500, capBps: 1500, settledBps: null, payout: null, status: 'open',
+  },
+  {
+    marketId: '0x2', itemName: 'Bread', currency: 'JPY', cover: 2000,
+    strikeBps: 300, capBps: 1200, settledBps: null, payout: null,
+    status: 'frozen', opensAt: '1 Oct',
+  },
+  {
+    marketId: '0x3', itemName: 'Eggs', currency: 'JPY', cover: 8000,
+    strikeBps: 500, capBps: 1500, settledBps: 1100, payout: 4800, status: 'settled',
+  },
+  {
+    marketId: '0x4', itemName: 'Cooking oil', currency: 'JPY', cover: 4000,
+    strikeBps: 500, capBps: 1500, settledBps: 200, payout: 0, status: 'redeemed',
+  },
+];
 
 /**
  * A harness for looking at CoverSheet without a wallet, a market or a session.
@@ -23,6 +51,11 @@ export default function CoverPreview() {
         months={3}
         onConfirm={(cover) => console.info('confirm', cover)}
       />
+
+      <div className="mt-6 border-t border-[#F2F4F6] pt-4">
+        <p className="px-5 pb-2 text-[14px] font-medium text-[#8B95A1]">Positions — all states</p>
+        <Positions positions={POSITIONS} onRedeem={(id) => console.info('redeem', id)} />
+      </div>
     </div>
   );
 }
