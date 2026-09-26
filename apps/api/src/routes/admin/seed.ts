@@ -78,6 +78,30 @@ const SHOPS: Record<string, Shop> = {
     },
     paidWith: 'CASH',
   },
+  JP: {
+    currency: 'JPY',
+    // Eight, not four. The matched-model index pairs on (outlet, product), so
+    // the number of distinct outlets is the ceiling on how many price
+    // relatives a fixture can produce at all — four shops left 22 pairs
+    // against a floor of 20, which is a demo that stops working when the
+    // window moves.
+    names: [
+      'まいばすけっと 神南店', 'サミットストア 中野', 'ライフ 西新宿', 'オーケー 蒲田',
+      'マルエツ 大井町', '業務スーパー 三鷹', 'イオン 板橋', 'ピーコック 麻布',
+    ],
+    prices: { rice: 3180, eggs: 298, cooking_oil: 428, bread: 168, sugar: 240, noodles: 128, detergent: 398, soap: 210 },
+    lines: {
+      rice: 'コシヒカリ {q}kg',
+      eggs: 'たまご Lサイズ10個',
+      cooking_oil: 'サラダ油 {q}L',
+      bread: '食パン 6枚切',
+      sugar: '上白糖 {q}kg',
+      noodles: 'インスタントラーメン {q}袋',
+      detergent: '洗濯洗剤 詰替 {q}kg',
+      soap: '石けん {q}個',
+    },
+    paidWith: '現金',
+  },
   GB: {
     currency: 'GBP',
     names: ['The Corner Shop', 'High Street Grocer', 'Green Lane Market'],
@@ -115,7 +139,7 @@ const seedRoute = createRoute({
             address: z
               .string()
               .regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 0x-prefixed wallet address'),
-            country: z.enum(['KR', 'NG', 'GB']).default('KR'),
+            country: z.enum(['KR', 'NG', 'GB', 'JP']).default('KR'),
             /** Receipts to write, spread back over `months`. */
             receipts: z.number().int().min(1).max(120).default(24),
             months: z.number().int().min(1).max(12).default(6),
@@ -261,6 +285,16 @@ export const adminSeedRoutes = new OpenAPIHono<AppEnv>({ defaultHook: adminValid
           // handler, not the column: these rows cannot be written anywhere a
           // real user will be compared against them.
           source: 'vision' as const,
+          // Uploaded when the receipt was issued, not when the seeder ran.
+          //
+          // Without this every seeded line carries the same `created_at`, and
+          // the matched-model index cuts its two comparison windows on exactly
+          // that column — so a six-month history collapsed into one window,
+          // the previous window was empty, and **not a single price relative
+          // could form**. The index reported 1,543 observations and zero
+          // matched pairs, which reads like a bug in the matching rather than
+          // a bug in the fixture.
+          createdAt: issuedAt,
         })),
       );
 

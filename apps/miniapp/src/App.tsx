@@ -16,6 +16,7 @@ const Ledger = lazy(() => import('@/pages/Ledger'));
 const ScanResult = lazy(() => import('@/pages/ScanResult'));
 const LedgerItem = lazy(() => import('@/pages/LedgerItem'));
 const CoverPreview = lazy(() => import('@/pages/CoverPreview'));
+const EnsLive = lazy(() => import('@/pages/EnsLive'));
 const ReceiptDetail = lazy(() => import('@/pages/ReceiptDetail'));
 const Login = lazy(() => import('@/pages/Login'));
 const Onboarding = lazy(() => import('@/pages/Onboarding'));
@@ -135,6 +136,11 @@ export default function App() {
             on-chain position, so without a harness it would be the one screen
             that never gets looked at before shipping. */}
         {import.meta.env.DEV && <Route path="/preview/cover" element={<CoverPreview />} />}
+
+        {/* Public and signed out on purpose: it is the live demo for the ENS
+            integration, and every value on it is read from Sepolia when the
+            page loads rather than prepared here. */}
+        <Route path="/ens" element={<EnsLive />} />
 
         {isAuthenticated ? (
           <>

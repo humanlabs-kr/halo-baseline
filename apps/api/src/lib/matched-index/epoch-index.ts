@@ -152,6 +152,12 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
    * only World carries World ID. That is a real limit, so it is measured rather
    * than glossed: `verifiedPeople` says how much of the floor is load-bearing.
    *
+   * Thirty-two hex characters of each, not twelve. The pseudonym never enters
+   * the published leaf set, so there is nothing to be gained by truncating it
+   * and a collision silently merges two people into one — which is the same
+   * failure as the Sybil hole this key exists to close, arrived at from the
+   * other direction.
+   *
    * Salted per series either way. The comment this replaces claimed the salt
    * was what stopped two published leaf sets being stitched into one shopping
    * history, and that was never true: **the leaf set carries no person at
@@ -171,7 +177,7 @@ export async function computeEpochIndex(input: EpochIndexInput): Promise<EpochIn
   const humanOf = await verifiedHumans(db, [...previousRows, ...currentRows]);
   const personOf = (address: string) => {
     const nullifier = humanOf.get(address.toLowerCase());
-    return nullifier ? `${salt}:h:${nullifier.slice(2, 18)}` : `${salt}:w:${address.slice(2, 14)}`;
+    return nullifier ? `${salt}:h:${nullifier.slice(2, 34)}` : `${salt}:w:${address.slice(2, 34)}`;
   };
 
   const toObservations = (rows: Row[]): Observation[] => {
