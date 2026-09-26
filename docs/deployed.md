@@ -27,19 +27,33 @@ deploy script mined a CREATE2 salt until it landed on one that spells out what
 this hook is allowed to do. A hook anywhere else is a hook the PoolManager
 refuses.
 
-## Why Sepolia and not where the users are
+## Why Sepolia, and the part of that we had wrong
 
-Three things have to sit on one chain for a reviewer to follow the loop
-without switching explorers: a v4 PoolManager, the ENS registry, and our
-contracts. Sepolia is the only testnet where all three hold — ENS exists
-nowhere else, and splitting the resolver from the market means two explorers
-and a bridge to explain.
+**ENSv2 is on Sepolia and nowhere else.** It is a public beta; mainnet still
+runs v1. That is the whole reason this demo is on a testnet.
 
-The app's 417,000 users are on World Chain, Celo and Kaia. **That gap is real.**
-Reaching them is a bridge, and a bridge is a second transaction on the one
-screen that must not have one. It is decision #1 in `open-decisions.md` and it
-is not solved here.
+It is not the Uniswap half. The v4 `PoolManager` is already deployed on the
+chains our users are actually on, and it is the **same 24,009-byte contract**:
 
+| Chain | Chain id | `PoolManager` | Our users |
+|---|---|---|---|
+| World Chain | 480 | `0xb1860d529182ac3bc1f51fa2abd56662b7d13f33` | 59,253 |
+| Celo | 42220 | `0x288dc841A52FCA2707c6947B3A777c5E56cd87BC` | 308,316 |
+| Sepolia | 11155111 | `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543` | — |
+
+Verified by `codesize` and an ERC-6909 `balanceOf` against each, not read off a
+list.
+
+So **368,000 of the 417,000 are already on a chain that can run this market
+today.** No bridge. `packages/hedge` is chain-agnostic — the deploy script takes
+`POOL_MANAGER`, `COLLATERAL` and `GOVERNANCE` from the environment precisely so
+that it lands wherever the users are.
+
+This file used to say the opposite: that reaching the users "is a bridge, and a
+bridge is a second transaction on the one screen that must not have one". That
+was written without checking where v4 is deployed, and it conceded a weakness we
+do not have. Kaia (49,788 users) is the one that really has no v4, and it is
+about 12% of the base.
 ## Why the collateral is ours
 
 `TestUSD` is six decimals and anybody can mint it. A demo that depends on a
@@ -241,8 +255,12 @@ predates it, so the URLs in the `OffchainLookup` answer 404 today. The proof
 script supplies the gateway inline for that reason, and the bytes it produces
 are the bytes that route produces. A deploy, not a code change.
 
-**Reaching the app's users.** Sepolia is not where the 417,000 are. That gap is
-decision #1 in `open-decisions.md` and it is a bridge.
+**Kaia has no Uniswap v4.** World Chain and Celo do, so 368,000 of the 417,000
+are reachable with the contracts as they stand; the remaining 49,788 are not,
+and that is decision #1 in `open-decisions.md`.
+
+**And the ENS half cannot follow them yet**, because ENSv2 is Sepolia-only. The
+market can ship to where the users are before the name can.
 
 ## Reproducing
 

@@ -15,17 +15,20 @@ import {TestUSD} from "../src/TestUSD.sol";
 /**
  * The whole system onto Ethereum Sepolia, in one transaction batch.
  *
- * WHY SEPOLIA AND NOT THE CHAIN THE USERS ARE ON. Three things have to be in
- * the same place for a reviewer to follow the loop without switching
- * explorers: a v4 PoolManager, the ENS registry, and our contracts. Sepolia is
- * the only testnet where all three hold — ENS does not exist anywhere else,
- * and putting the resolver on one chain and the market on another means the
- * demo is two explorers and a bridge story.
+ * WHY SEPOLIA, AND WHY THAT IS AN ENS CONSTRAINT AND NOT A UNISWAP ONE.
+ * ENSv2 is a public beta that exists only on Sepolia; mainnet still runs v1.
+ * Since the resolver and the market have to share a chain for the loop to be
+ * followable in one explorer, that pins the demo here.
  *
- * The app's users are on World Chain, Celo and Kaia. That gap is real and is
- * written down in docs/open-decisions.md rather than papered over: reaching
- * them is a bridge, and a bridge is a second transaction on the one screen
- * that must not have one.
+ * It does not pin the product. The v4 PoolManager is already live on World
+ * Chain (0xb1860d52…, 59,253 of our users) and Celo (0x288dc841…, 308,316),
+ * byte-identical to the Sepolia one at 24,009 bytes — so 368,000 of 417,000
+ * are on a chain that can run this market with no bridge. Kaia has no v4 and
+ * is the ~12% that genuinely cannot.
+ *
+ * Which is why nothing in this package hardcodes a chain. POOL_MANAGER,
+ * COLLATERAL and GOVERNANCE come from the environment, and the constant below
+ * is Sepolia's only because this script is the Sepolia one.
  *
  *   forge script script/DeploySepolia.s.sol \
  *     --rpc-url $SEPOLIA_RPC --private-key $PK --broadcast

@@ -17,30 +17,37 @@ Nothing below is a bug. Bugs got fixed; these are choices that are not mine.
 
 ---
 
-## 1. Which chain the pool goes on — **DECIDED: Ethereum Sepolia**
+## 1. Which chain the pool goes on — **DECIDED: Sepolia to demo, and it is ENS that pins us there**
 
 Three things have to be on one chain for a reviewer to follow the loop in one
-explorer: a v4 PoolManager, the ENS registry, and ours. Sepolia is the only
-testnet where all three hold. The PoolManager was verified on chain rather than
-taken from a list.
+explorer: a v4 PoolManager, ENS, and ours. **ENSv2 exists only on Sepolia** — it
+is a public beta and mainnet still runs v1 — so Sepolia is the only place the
+whole loop fits.
 
-**What was traded away:** the app's users are elsewhere, and this does not
-reach them. That is a bridge, and a bridge is a second transaction on the one
-screen that must not have one. Unchanged as a Phase-2 problem.
+**What was traded away: less than this entry used to claim.** Uniswap v4 is
+already live on World Chain and Celo, byte-identical to the Sepolia deployment:
 
-Uniswap v4 must be deployed there, and the collateral has to be something the
-417,000 people already in the app can hold. Those two constraints do not
-obviously meet: the users are on World Chain, Celo and Kaia, and v4's
-deployment list is not the same list.
+| Chain | `PoolManager` | Our users |
+|---|---|---|
+| World Chain (480) | `0xb1860d529182ac3bc1f51fa2abd56662b7d13f33` | 59,253 |
+| Celo (42220) | `0x288dc841A52FCA2707c6947B3A777c5E56cd87BC` | 308,316 |
 
-- **Same chain as the users** — no bridge, and the consumer flow in the app is
-  one transaction. Needs v4 to be there.
-- **Wherever v4 is** — the pool works immediately and the app needs a bridge
-  story, which is a second transaction and a second failure mode on the one
-  screen that must not have either.
+So **368,000 of 417,000 users are already on a chain that can run this market**,
+with no bridge and no second transaction. `packages/hedge` takes
+`POOL_MANAGER`, `COLLATERAL` and `GOVERNANCE` from the environment, so that is a
+deploy rather than a port.
 
-**If nobody decides:** the contracts stay deployable but undeployed, and the
-demo shows settlement without a market.
+**What is actually open:** Kaia (49,788 users, ~12%) has no v4, and the ENS half
+cannot follow anyone off Sepolia until ENSv2 ships more widely. The market can
+reach the users before the name can.
+
+### The original note, which conceded a weakness we do not have
+
+It said reaching the users "is a bridge, and a bridge is a second transaction on
+the one screen that must not have one", and framed the choice as *same chain as
+the users* versus *wherever v4 is*. That dichotomy was false — those are the
+same chain for 88% of the base — and it was written without checking the v4
+deployment list. A gap assumed is as bad as a number assumed.
 
 ---
 

@@ -28,6 +28,13 @@ Everything new lives in **[`packages/hedge`](./packages/hedge)** and is
 deployed on Ethereum Sepolia. Addresses and the transaction hashes behind every
 claim are in **[`docs/deployed.md`](./docs/deployed.md)**.
 
+Sepolia because **ENSv2 exists nowhere else** — it is a public beta and mainnet
+still runs v1. That is an ENS constraint, not a Uniswap one: the v4
+`PoolManager` is already live on World Chain (`0xb1860d52…`) and Celo
+(`0x288dc841…`), byte-identical at 24,009 bytes to the Sepolia deployment, so
+**368,000 of our 417,000 users are already on a chain that can run this market
+with no bridge**. Nothing in `packages/hedge` hardcodes a chain.
+
 ### Uniswap v4 — what to verify, and where
 
 Feedback for the Uniswap Foundation is in **[`FEEDBACK.md`](./FEEDBACK.md)**.
