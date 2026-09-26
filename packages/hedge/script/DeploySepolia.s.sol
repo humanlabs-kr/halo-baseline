@@ -65,8 +65,7 @@ contract DeploySepolia is Script {
         oracle.setMinBond(SERIES, 0.001 ether);
 
         bytes memory creation = abi.encodePacked(
-            type(HaloHook).creationCode,
-            abi.encode(IPoolManager(POOL_MANAGER), vault, governance)
+            type(HaloHook).creationCode, abi.encode(IPoolManager(POOL_MANAGER), vault, governance)
         );
         (address predicted, bytes32 salt) = _mine(creation);
         HaloHook hook = new HaloHook{salt: salt}(IPoolManager(POOL_MANAGER), vault, governance);
