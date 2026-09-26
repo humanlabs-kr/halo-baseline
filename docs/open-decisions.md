@@ -6,12 +6,24 @@ happens if nobody decides.
 
 Nothing below is a bug. Bugs got fixed; these are choices that are not mine.
 
+> **Four of these were decided and shipped.** Chain, collateral, bond rate and
+> the ENS name now carry the answer that was taken rather than the question —
+> see `deployed.md` for the addresses and the lifecycle they were proved
+> against. The reasoning is kept rather than deleted, because the next person
+> deserves to know what was traded away.
+
 ---
 
-## 1. Which chain the pool goes on
+## 1. Which chain the pool goes on — **DECIDED: Ethereum Sepolia**
 
-**Blocked:** deploying `HaloHook` and opening a market. Everything up to and
-including settlement works without it.
+Three things have to be on one chain for a reviewer to follow the loop in one
+explorer: a v4 PoolManager, the ENS registry, and ours. Sepolia is the only
+testnet where all three hold. The PoolManager was verified on chain rather than
+taken from a list.
+
+**What was traded away:** the app's users are elsewhere, and this does not
+reach them. That is a bridge, and a bridge is a second transaction on the one
+screen that must not have one. Unchanged as a Phase-2 problem.
 
 Uniswap v4 must be deployed there, and the collateral has to be something the
 417,000 people already in the app can hold. Those two constraints do not
@@ -29,7 +41,17 @@ demo shows settlement without a market.
 
 ---
 
-## 2. The collateral token
+## 2. The collateral token — **DECIDED: our own six-decimal `TestUSD`**
+
+Mintable by anyone, so the demo does not depend on a faucet. Six decimals
+because that is what real collateral is, and the vault's arithmetic behaves
+differently at eighteen.
+
+**What was traded away:** nothing about the issuer-freeze question below is
+answered — it is deferred, because a test token has no issuer. It returns the
+moment this touches a real stablecoin.
+
+### The original note
 
 **Blocked:** `EpochVault`'s constructor argument. Not the code — the vault
 already measures balance deltas and carries a reentrancy guard precisely
@@ -44,7 +66,20 @@ this repository prevents that.
 
 ---
 
-## 3. `halo.eth`
+## 3. `halo.eth` — **DECIDED: ship the resolver, attach the name later**
+
+`HaloResolver` is deployed on Sepolia. A reviewer can call `resolve(bytes,bytes)`
+on it and watch it revert `OffchainLookup` with the gateway URL, which is the
+entire ENSIP-10 plus EIP-3668 integration — the name it hangs off changes
+nothing about that.
+
+Attaching it is five minutes through `app.ens.domains` with the wallet we hold,
+and the archaeology below is why it is not worth more than that.
+
+**What was traded away:** `rice.jp.halo.eth` does not resolve in a third-party
+client today. That is a demo detail, not an integration gap.
+
+### The original note
 
 **Blocked:** the ENS demo resolving live. Not the resolver, which does not care
 which node it hangs off.
@@ -93,7 +128,15 @@ needs a number.
 
 ---
 
-## 6. The publication bond — a floor and a conversion rate
+## 6. The publication bond — **DECIDED: 333,333,333 wei per base unit**
+
+Set for `JP/rice`, with a floor of 0.001 ETH. Proved on chain: 100 tUSD of open
+interest required 0.0667 ETH of bond, about twice what is at stake.
+
+**What still needs a person:** the rate has to move when the collateral's price
+does, and a stale one has no symptom.
+
+### The original note
 
 **Blocked:** `setMinBond` and `setBondPerCollateralUnit`, per series.
 
