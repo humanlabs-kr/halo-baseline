@@ -24,6 +24,11 @@ Halo was a **top-10 finalist at ETHGlobal Buenos Aires 2025**. This is the
 continuity submission: the same product, two years and 417,000 users later,
 with a settlement-grade market built on top of it.
 
+**Live demo:** https://miniapp.receipto.seriesc.dev/ens — the ENSv2 integration
+resolved in your browser against Sepolia. Nothing on that page is written down
+in it: the registry entries, the six wildcard offsets, the gateway response and
+the oracle value are all fetched when it loads.
+
 Everything new lives in **[`packages/hedge`](./packages/hedge)** and is
 deployed on Ethereum Sepolia. Addresses and the transaction hashes behind every
 claim are in **[`docs/deployed.md`](./docs/deployed.md)**.
@@ -37,7 +42,8 @@ with no bridge**. Nothing in `packages/hedge` hardcodes a chain.
 
 ### Uniswap v4 — what to verify, and where
 
-Feedback for the Uniswap Foundation is in **[`FEEDBACK.md`](./FEEDBACK.md)**.
+Feedback for the Uniswap Foundation is in **[`FEEDBACK.md`](./FEEDBACK.md)**;
+the World integration debrief is in **[`WORLD_FEEDBACK.md`](./WORLD_FEEDBACK.md)**.
 
 `HaloHook` is deployed at
 [`0xb8fd9d54093820e43Ca21B223468b78624198Ac4`](https://sepolia.etherscan.io/address/0xb8fd9d54093820e43Ca21B223468b78624198Ac4).
