@@ -25,6 +25,7 @@ import { adminRaffleRoutes } from './routes/admin/raffle';
 import { adminStatsRoutes } from './routes/admin/stats';
 import { adminBackfillRoutes } from './routes/admin/backfill-lines';
 import { adminMatchedIndexRoutes } from './routes/admin/matched-index';
+import { ensGatewayRoutes } from './routes/client/ens-gateway';
 import { adminLineUnitRoutes, adminMarketRoutes } from './routes/admin/line-units';
 import { adminReadImageRoutes } from './routes/admin/read-image';
 import { adminUploadRemoveRoutes, adminUploadRoutes } from './routes/admin/upload';
@@ -113,6 +114,7 @@ const adminApp = new OpenAPIHono<AppEnv>()
   .route('/v1', adminReparseRoutes)
   .route('/v1', adminSeedRoutes);
 
+app.route('/', ensGatewayRoutes);
 app.route('/', clientApp);
 app.route('/', adminApp);
 
