@@ -14,8 +14,8 @@
  * signature is identical whether the number behind it is right, wrong, or a
  * lie. What makes this safe is on the other side — for a finalised epoch the
  * callback re-reads the oracle and rejects a signed value that disagrees, so
- * the signature only carries weight for the live figure, which is marked
- * `provisional` and settles nothing.
+ * the signature only carries weight for the live figure, which is provisional
+ * and settles nothing.
  *
  * Public on purpose. CCIP-Read gateways are called by arbitrary clients on
  * behalf of arbitrary readers, so there is nobody to authenticate; the
@@ -23,15 +23,29 @@
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { dataSchema, errorSchema } from '@halo/contracts';
-import { encodeAbiParameters, keccak256, parseAbiParameters, toBytes, type Hex } from 'viem';
+import { encodeAbiParameters, parseAbiParameters, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
+import { computeEpochIndex } from '../../lib/matched-index/epoch-index';
+import { extraDataFromCallData, gatewayDigest } from '../../lib/matched-index/gateway-digest';
 import { decodeDnsName, epochToNumber, parseName } from '../../lib/matched-index/ens-name';
 import { seriesId } from '../../lib/matched-index/snapshot';
 import type { AppEnv } from '../../types';
 
 /** How long a signed answer stays usable. Short, because it is a live figure. */
 const TTL_SECONDS = 300;
+
+/**
+ * Rows pulled per window. Far below the admin ceiling, on purpose.
+ *
+ * This route is unauthenticated because CCIP-Read has nobody to authenticate,
+ * so the work it will do for a stranger has to be bounded up front. The admin
+ * endpoint is where an operator asks for a sweep.
+ */
+const GATEWAY_ROW_LIMIT = 5_000;
+
+/** Both windows of the matched-model comparison, in days. */
+const WINDOW_DAYS = 30;
 
 const gatewayRoute = createRoute({
   method: 'post',
@@ -59,6 +73,10 @@ const gatewayRoute = createRoute({
       content: { 'application/json': { schema: dataSchema(z.object({ data: z.string() })) } },
     },
     400: { description: 'Unreadable name', content: { 'application/json': { schema: errorSchema } } },
+    404: {
+      description: 'A name we do not publish a series for',
+      content: { 'application/json': { schema: errorSchema } },
+    },
   },
 });
 
@@ -82,36 +100,91 @@ export const ensGatewayRoutes = new OpenAPIHono<AppEnv>().openapi(gatewayRoute, 
     return c.json({ error: { code: 'NO_COUNTRY', message: 'name carries no country label' } }, 400);
   }
 
-  const series = seriesId(parsed.country, parsed.item ?? '');
-  const epoch = epochToNumber(parsed.epoch) ?? 0;
+  /**
+   * We publish country series. The item level of the hierarchy is real in the
+   * namespace and is not a published series yet, and answering
+   * `rice.jp.halo.eth` with the Japanese basket would be handing back a
+   * different number than the name asked for. A 404 says so; a country figure
+   * wearing an item's name would not.
+   */
+  if (parsed.item) {
+    return c.json(
+      {
+        error: {
+          code: 'NO_SERIES',
+          message: `no published series for ${parsed.item}.${parsed.country.toLowerCase()} - country series only`,
+        },
+      },
+      404,
+    );
+  }
 
-  // Placeholder until the published series is wired through: the shape and the
-  // signature are what the callback checks, and both are final. What changes
-  // is where `valueBps` is read from.
-  const valueBps = 0n;
-
-  const result = encodeAbiParameters(parseAbiParameters('int256'), [valueBps]);
-  const expires = BigInt(Math.floor(Date.now() / 1000) + TTL_SECONDS);
-
-  // Bound to `sender`, so a response captured from one resolver cannot be
-  // replayed into another one that happens to trust the same key.
-  const digest = keccak256(
-    encodeAbiParameters(parseAbiParameters('address, uint64, bytes32, bytes'), [
-      sender as Hex,
-      expires,
-      keccak256(result),
-      data as Hex,
-    ]),
-  );
+  const series = seriesId(parsed.country, '');
+  const epochNumber = epochToNumber(parsed.epoch);
 
   /**
-   * Read defensively, because this key is not in the generated Env type yet.
+   * The epoch fixes the window, so the same name always asks the same
+   * question. Without one the name is asking for the live figure, which is
+   * whatever the last thirty days say right now.
+   */
+  const closesAt = epochNumber === null ? new Date() : endOfEpoch(epochNumber);
+
+  const computed = await computeEpochIndex({
+    db: c.get('db'),
+    country: parsed.country,
+    closesAt,
+    windowDays: WINDOW_DAYS,
+    limit: GATEWAY_ROW_LIMIT,
+  });
+
+  /**
+   * No number rather than zero.
+   *
+   * A window with too few matched pairs has no index, and `0` means "prices
+   * did not move" — the one answer that is never right when the truth is "we
+   * cannot tell". Every integrity floor that was missed comes back with it, so
+   * the caller learns why instead of guessing.
+   */
+  if (computed.index.changeBps === null) {
+    return c.json(
+      {
+        error: {
+          code: 'NO_INDEX',
+          message: `no index for this window: ${computed.reasons.join(', ') || 'no matched pairs'}`,
+        },
+      },
+      404,
+    );
+  }
+
+  const result = encodeAbiParameters(parseAbiParameters('int256'), [
+    BigInt(Math.round(computed.index.changeBps)),
+  ]);
+  const expires = BigInt(Math.floor(Date.now() / 1000) + TTL_SECONDS);
+
+  /**
+   * The digest is built where both languages can be held to it.
+   *
+   * `gateway-digest.ts` is the single definition, pinned by a fixture that the
+   * Solidity suite asserts as well. Inlining `encodePacked` here is how the two
+   * sides drift apart, and the failure — a signature that recovers to a
+   * stranger — points nowhere near the encoding.
+   */
+  const digest = gatewayDigest({
+    sender: sender as Hex,
+    expires,
+    result,
+    extraData: extraDataFromCallData(data as Hex),
+  });
+
+  /**
+   * Read defensively, because this key is not in the generated Env type.
    *
    * `worker-configuration.d.ts` is produced by wrangler from the deployment
    * config, so hand-editing it would be overwritten on the next generate.
-   * Adding ENS_GATEWAY_SIGNER_KEY as a secret through envsync is a deploy
-   * prerequisite tracked in docs/open-decisions.md; until then the route
-   * answers 400 rather than pretending to have signed something.
+   * Adding ENS_GATEWAY_SIGNER_KEY as a secret is a deploy step — see
+   * docs/ens-gateway.md — and until it exists the route answers 400 rather
+   * than pretending to have signed something.
    */
   const key = (c.env as unknown as Record<string, string | undefined>).ENS_GATEWAY_SIGNER_KEY as
     | Hex
@@ -124,11 +197,25 @@ export const ensGatewayRoutes = new OpenAPIHono<AppEnv>().openapi(gatewayRoute, 
 
   const encoded = encodeAbiParameters(
     parseAbiParameters('bytes, uint64, bytes, bytes32, uint64'),
-    [result, expires, signature, series, BigInt(epoch)],
+    [result, expires, signature, series, BigInt(epochNumber ?? 0)],
   );
 
   return c.json({ data: { data: encoded } }, 200);
 });
+
+/**
+ * The instant an epoch's window closes.
+ *
+ * Epochs are `YYYYMM` and identified by the last month of the period, so the
+ * window closes at the start of the month after. Built in UTC because a
+ * boundary that moves with the reader's timezone is a boundary two people
+ * disagree about.
+ */
+function endOfEpoch(epoch: number): Date {
+  const year = Math.floor(epoch / 100);
+  const month = epoch % 100; // 1-12
+  return new Date(Date.UTC(year, month, 1));
+}
 
 /**
  * Pull the first `bytes` argument out of an abi-encoded call.
