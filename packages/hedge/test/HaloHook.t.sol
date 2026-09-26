@@ -217,6 +217,62 @@ contract HaloHookTest is Test {
         assertLt(hook.MAX_FEE(), LPFeeLibrary.MAX_LP_FEE, "cap is above what v4 accepts");
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                THE BACKSTOP
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * The slice comes off the unspecified side, as claims rather than transfers.
+     *
+     * Taking it from the currency the trader pinned down would change the
+     * amount they asked for; taking it from the other one leaves their side of
+     * the quote intact. And minting a 6909 claim rather than transferring
+     * keeps the gas cost of a swap flat in the number of eventual recipients.
+     */
+    function test_afterSwap_accruesTheSliceOnTheUnspecifiedSide() public {
+        // Exact input, zeroForOne: the trader pinned currency0, so the slice
+        // comes out of currency1.
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
+        BalanceDelta delta = _delta(-1e6, 990_000);
+
+        vm.mockCall(pm, abi.encodeWithSelector(IPoolManager.mint.selector), abi.encode());
+        vm.prank(pm);
+        (bytes4 selector, int128 taken) = hook.afterSwap(address(this), key, params, delta, "");
+
+        uint256 expected = (990_000 * uint256(hook.BACKSTOP_FEE())) / LPFeeLibrary.MAX_LP_FEE;
+        assertEq(selector, IHooks.afterSwap.selector);
+        assertEq(uint256(uint128(taken)), expected, "slice is not 10 bp of the output");
+        assertEq(hook.backstop(key.currency1), expected, "not accrued against the right currency");
+    }
+
+    /// @dev A negative delta is input the trader still owes. Nothing to take.
+    function test_afterSwap_takesNothingWhenTheSideIsOwed() public {
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
+        BalanceDelta delta = _delta(-1e6, -5);
+
+        vm.prank(pm);
+        (, int128 taken) = hook.afterSwap(address(this), key, params, delta, "");
+        assertEq(taken, 0);
+        assertEq(hook.backstop(key.currency1), 0);
+    }
+
+    /// @dev A trade too small to round up to one unit accrues nothing, not a revert.
+    function test_afterSwap_dustTradeAccruesNothing() public {
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1, sqrtPriceLimitX96: 0});
+        BalanceDelta delta = _delta(-1, 1);
+
+        vm.prank(pm);
+        (, int128 taken) = hook.afterSwap(address(this), key, params, delta, "");
+        assertEq(taken, 0);
+    }
+
+    function _delta(int128 amount0, int128 amount1) internal pure returns (BalanceDelta) {
+        return BalanceDelta.wrap((int256(amount0) << 128) | (int256(uint256(uint128(amount1)))));
+    }
+
     /**
      * The fee must not move when the pool price does.
      *
