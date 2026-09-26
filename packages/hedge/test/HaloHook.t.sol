@@ -78,7 +78,8 @@ contract HaloHookTest is Test {
     }
 
     function _swapParams() internal pure returns (IPoolManager.SwapParams memory) {
-        return IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
+        return
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -169,10 +170,7 @@ contract HaloHookTest is Test {
 
     function _modifyParams() internal pure returns (IPoolManager.ModifyLiquidityParams memory) {
         return IPoolManager.ModifyLiquidityParams({
-            tickLower: -60,
-            tickUpper: 60,
-            liquidityDelta: 1e18,
-            salt: bytes32(0)
+            tickLower: -60, tickUpper: 60, liquidityDelta: 1e18, salt: bytes32(0)
         });
     }
 
@@ -232,8 +230,9 @@ contract HaloHookTest is Test {
     function test_afterSwap_accruesTheSliceOnTheUnspecifiedSide() public {
         // Exact input, zeroForOne: the trader pinned currency0, so the slice
         // comes out of currency1.
-        IPoolManager.SwapParams memory params =
-            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0
+        });
         BalanceDelta delta = _delta(-1e6, 990_000);
 
         vm.mockCall(pm, abi.encodeWithSelector(IPoolManager.mint.selector), abi.encode());
@@ -248,8 +247,9 @@ contract HaloHookTest is Test {
 
     /// @dev A negative delta is input the trader still owes. Nothing to take.
     function test_afterSwap_takesNothingWhenTheSideIsOwed() public {
-        IPoolManager.SwapParams memory params =
-            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0});
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: true, amountSpecified: -1e6, sqrtPriceLimitX96: 0
+        });
         BalanceDelta delta = _delta(-1e6, -5);
 
         vm.prank(pm);

@@ -71,7 +71,9 @@ contract EpochVault is IOpenInterest {
     event Merge(bytes32 indexed marketId, address indexed who, uint256 burned, uint256 returned);
     event Settled(bytes32 indexed marketId, int256 valueBps, uint256 payoutHighWad);
     event VoidSettled(bytes32 indexed marketId);
-    event Redeemed(bytes32 indexed marketId, address indexed who, uint256 high, uint256 low, uint256 paid);
+    event Redeemed(
+        bytes32 indexed marketId, address indexed who, uint256 high, uint256 low, uint256 paid
+    );
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -180,8 +182,10 @@ contract EpochVault is IOpenInterest {
         // Salted with the market id so the outcome addresses are predictable
         // before creation — the pool key, and therefore the ENS record, can be
         // computed by anyone without waiting for the transaction to land.
-        address high = Clones.cloneDeterministic(outcomeImplementation, keccak256(abi.encode(id, "HIGH")));
-        address low = Clones.cloneDeterministic(outcomeImplementation, keccak256(abi.encode(id, "LOW")));
+        address high =
+            Clones.cloneDeterministic(outcomeImplementation, keccak256(abi.encode(id, "HIGH")));
+        address low =
+            Clones.cloneDeterministic(outcomeImplementation, keccak256(abi.encode(id, "LOW")));
 
         OutcomeToken(high).initialize(address(this), "Halo Cover HIGH", "hHIGH", _outcomeDecimals);
         OutcomeToken(low).initialize(address(this), "Halo Cover LOW", "hLOW", _outcomeDecimals);
@@ -252,7 +256,12 @@ contract EpochVault is IOpenInterest {
      * true by construction instead of true by assumption about a token we do
      * not control.
      */
-    function split(bytes32 id, uint256 amount) external nonReentrant notFrozen(id) returns (uint256 minted) {
+    function split(bytes32 id, uint256 amount)
+        external
+        nonReentrant
+        notFrozen(id)
+        returns (uint256 minted)
+    {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();
@@ -283,7 +292,12 @@ contract EpochVault is IOpenInterest {
      * `amount` against a short receipt is correct: the shortfall is the token's
      * fee, not collateral that belongs to anyone still in the market.
      */
-    function merge(bytes32 id, uint256 amount) external nonReentrant notFrozen(id) returns (uint256 returned) {
+    function merge(bytes32 id, uint256 amount)
+        external
+        nonReentrant
+        notFrozen(id)
+        returns (uint256 returned)
+    {
         if (amount == 0) revert ZeroAmount();
         Market storage m = _markets[id];
         if (m.high == address(0)) revert NoMarket();

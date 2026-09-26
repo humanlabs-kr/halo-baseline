@@ -249,7 +249,9 @@ contract EpochVaultTest is Test {
                                    FUZZ
     //////////////////////////////////////////////////////////////*/
 
-    function testFuzz_splitThenMerge_neverBreaksTheInvariant(uint96 a, uint96 b, uint96 out) public {
+    function testFuzz_splitThenMerge_neverBreaksTheInvariant(uint96 a, uint96 b, uint96 out)
+        public
+    {
         a = uint96(bound(a, 1, 1_000_000e6));
         b = uint96(bound(b, 1, 1_000_000e6));
         out = uint96(bound(out, 0, a));

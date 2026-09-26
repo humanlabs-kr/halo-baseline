@@ -86,8 +86,12 @@ contract HaloIndexOracle {
         uint256 bond,
         uint64 challengeEnd
     );
-    event Disputed(bytes32 indexed seriesId, uint64 indexed epoch, address indexed by, uint256 bond);
-    event Resolved(bytes32 indexed seriesId, uint64 indexed epoch, bool publisherWasRight, uint256 pot);
+    event Disputed(
+        bytes32 indexed seriesId, uint64 indexed epoch, address indexed by, uint256 bond
+    );
+    event Resolved(
+        bytes32 indexed seriesId, uint64 indexed epoch, bool publisherWasRight, uint256 pot
+    );
     event Finalized(bytes32 indexed seriesId, uint64 indexed epoch, int256 valueBps);
     event Voided(bytes32 indexed seriesId, uint64 indexed epoch);
 
@@ -102,7 +106,6 @@ contract HaloIndexOracle {
         Disputed, // challenged; waiting on the arbiter
         Finalized, // settleable
         Voided // nothing was ever agreed; collateral comes back 50/50
-
     }
 
     struct Epoch {
@@ -225,10 +228,13 @@ contract HaloIndexOracle {
      * was included; only the full leaf set proves one was not excluded, and
      * censorship is the attack that actually pays.
      */
-    function publish(bytes32 seriesId, uint64 epoch, int256 valueBps, bytes32 leavesRoot, bytes32 leavesCID)
-        external
-        payable
-    {
+    function publish(
+        bytes32 seriesId,
+        uint64 epoch,
+        int256 valueBps,
+        bytes32 leavesRoot,
+        bytes32 leavesCID
+    ) external payable {
         Epoch storage e = _epochs[seriesId][epoch];
         if (e.status != Status.Open) revert NotOpen();
         if (block.timestamp < e.closesAt) revert TooEarly();
@@ -247,7 +253,9 @@ contract HaloIndexOracle {
         e.challengeEnd = uint64(block.timestamp) + _challengeWindow[seriesId][epoch];
         e.status = Status.Published;
 
-        emit Published(seriesId, epoch, valueBps, leavesRoot, leavesCID, msg.sender, msg.value, e.challengeEnd);
+        emit Published(
+            seriesId, epoch, valueBps, leavesRoot, leavesCID, msg.sender, msg.value, e.challengeEnd
+        );
     }
 
     /**
@@ -303,7 +311,10 @@ contract HaloIndexOracle {
      * and the epoch returns to Open, so a correct value can still be published
      * before the void window runs out.
      */
-    function resolve(bytes32 seriesId, uint64 epoch, bool publisherWasRight) external onlyGovernance {
+    function resolve(bytes32 seriesId, uint64 epoch, bool publisherWasRight)
+        external
+        onlyGovernance
+    {
         Epoch storage e = _epochs[seriesId][epoch];
         if (e.status != Status.Disputed) revert NotDisputed();
 

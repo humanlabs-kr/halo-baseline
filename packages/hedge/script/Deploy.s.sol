@@ -59,7 +59,9 @@ contract Deploy is Script {
         console2.log("HaloHook       ", address(hook));
         console2.log("hook flags     ", uint160(address(hook)) & FLAG_MASK);
         console2.log("");
-        console2.log("Next: oracle.setOpenInterest(vault), then openEpoch, then initialize the pool");
+        console2.log(
+            "Next: oracle.setOpenInterest(vault), then openEpoch, then initialize the pool"
+        );
         console2.log("with fee = 0x800000 (DYNAMIC_FEE_FLAG) and hooks = the address above.");
     }
 
@@ -73,8 +75,9 @@ contract Deploy is Script {
      */
     function _mine(bytes memory creation) internal pure returns (address addr, bytes32 salt) {
         uint160 target = uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
-                | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes32 initCodeHash = keccak256(creation);
 
@@ -82,7 +85,11 @@ contract Deploy is Script {
             salt = bytes32(i);
             addr = address(
                 uint160(
-                    uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, initCodeHash)))
+                    uint256(
+                        keccak256(
+                            abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, initCodeHash)
+                        )
+                    )
                 )
             );
             if (uint160(addr) & FLAG_MASK == target) return (addr, salt);

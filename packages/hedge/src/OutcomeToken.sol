@@ -71,9 +71,12 @@ contract OutcomeToken {
      * That also means the implementation itself can never be initialised and
      * then used as if it were a market.
      */
-    function initialize(address vault_, string calldata name_, string calldata symbol_, uint8 decimals_)
-        external
-    {
+    function initialize(
+        address vault_,
+        string calldata name_,
+        string calldata symbol_,
+        uint8 decimals_
+    ) external {
         if (vault != address(0)) revert AlreadyInitialized();
         // Zero would leave the guard above unset and the clone re-initialisable
         // by anyone. The guard and the field being the same slot is what makes

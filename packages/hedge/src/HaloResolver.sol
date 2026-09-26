@@ -106,7 +106,11 @@ contract HaloResolver {
      * here with the full DNS-encoded name in hand. Nothing is registered per
      * series; the hierarchy is a convention this function parses.
      */
-    function resolve(bytes calldata name, bytes calldata data) external view returns (bytes memory) {
+    function resolve(bytes calldata name, bytes calldata data)
+        external
+        view
+        returns (bytes memory)
+    {
         revert OffchainLookup(
             address(this),
             _gateways,
@@ -140,12 +144,18 @@ contract HaloResolver {
         view
         returns (bytes memory)
     {
-        (bytes memory result, uint64 expires, bytes memory signature, bytes32 seriesId, uint64 epoch) =
-            abi.decode(response, (bytes, uint64, bytes, bytes32, uint64));
+        (
+            bytes memory result,
+            uint64 expires,
+            bytes memory signature,
+            bytes32 seriesId,
+            uint64 epoch
+        ) = abi.decode(response, (bytes, uint64, bytes, bytes32, uint64));
 
         if (block.timestamp >= expires) revert StaleResponse();
 
-        bytes32 digest = keccak256(abi.encodePacked(address(this), expires, keccak256(result), extraData));
+        bytes32 digest =
+            keccak256(abi.encodePacked(address(this), expires, keccak256(result), extraData));
         if (!trustedSigner[_recover(digest, signature)]) revert UnknownSigner();
 
         // A finalised epoch has an answer on chain. Trusting the gateway about

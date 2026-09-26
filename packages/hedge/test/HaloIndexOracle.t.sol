@@ -128,7 +128,9 @@ contract HaloIndexOracleTest is Test {
 
         vm.warp(closesAt + 1);
         vm.prank(publisher);
-        vm.expectRevert(abi.encodeWithSelector(HaloIndexOracle.BondTooSmall.selector, 200 ether, 1 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(HaloIndexOracle.BondTooSmall.selector, 200 ether, 1 ether)
+        );
         oracle.publish{value: 1 ether}(SERIES, EPOCH, 1200, ROOT, CID);
 
         vm.prank(publisher);
@@ -187,7 +189,9 @@ contract HaloIndexOracleTest is Test {
     function test_dispute_requiresMatchingBond() public {
         _publish();
         vm.prank(challenger);
-        vm.expectRevert(abi.encodeWithSelector(HaloIndexOracle.BondTooSmall.selector, 1 ether, 0.5 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(HaloIndexOracle.BondTooSmall.selector, 1 ether, 0.5 ether)
+        );
         oracle.dispute{value: 0.5 ether}(SERIES, EPOCH);
     }
 

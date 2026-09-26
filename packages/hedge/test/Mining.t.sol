@@ -32,7 +32,8 @@ contract MiningTest is Test {
         );
         uint160 target = uint160(
             Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
-                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         assertEq(target, 0x0AC4, "the permission set moved");
 
@@ -42,7 +43,11 @@ contract MiningTest is Test {
             address a = address(
                 uint160(
                     uint256(
-                        keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, bytes32(i), initCodeHash))
+                        keccak256(
+                            abi.encodePacked(
+                                bytes1(0xff), CREATE2_DEPLOYER, bytes32(i), initCodeHash
+                            )
+                        )
                     )
                 )
             );

@@ -150,8 +150,9 @@ contract HaloHook is IHooks {
      */
     function permissions() public pure returns (uint160) {
         return uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
-                | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
     }
 
@@ -202,12 +203,12 @@ contract HaloHook is IHooks {
                                HOOK CALLBACKS
     //////////////////////////////////////////////////////////////*/
 
-    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
-        external
-        view
-        onlyPoolManager
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
+    function beforeSwap(
+        address,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata,
+        bytes calldata
+    ) external view onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         bytes32 id = _marketFor(key);
         if (vault.isFrozen(id)) revert MarketFrozen();
 
@@ -296,7 +297,11 @@ contract HaloHook is IHooks {
         revert HookNotImplemented();
     }
 
-    function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
+    function afterInitialize(address, PoolKey calldata, uint160, int24)
+        external
+        pure
+        returns (bytes4)
+    {
         revert HookNotImplemented();
     }
 
