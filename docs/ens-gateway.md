@@ -142,13 +142,33 @@ read the name.
 per-series registration — see `ens-sepolia-status.md` for the registry tree and
 the offsets that prove it is being walked.
 
-What is *not* live is this route. The `OffchainLookup` hands a client
-`https://api.halo.humanlabs.world/v1/ens/gateway`, and the deployed worker
-predates this branch, so that URL answers 404 today. Everything either side of
-it is in place: the name resolves, the resolver reverts correctly, both signer
-keys are trusted on chain, and both GitHub Environments carry the secret. A
-deploy closes it.
+**The route is deployed to staging** at
+`https://api.receipto.seriesc.dev/v1/ens/gateway`, which is the second URL in
+the `OffchainLookup`. Production is the first and has not shipped this branch
+yet, so it answers 404 — and a client walking the list in order falls through
+to staging, which is precisely what the list is plural for.
 
-Until then `scripts/ens-ccip-proof.ts` supplies the gateway inline, and the
-bytes it produces are the bytes this route produces — same `gatewayDigest`,
-same key, same encoding.
+What staging answers today is a refusal, and a correct one:
+
+```
+api.halo.humanlabs.world   not deployed (HTTP 404)
+api.receipto.seriesc.dev   live, refused: NO_INDEX
+                           needs 20 matched pairs, has 0,
+                           needs 3 outlets, has 0,
+                           needs 30 people, has 0
+```
+
+The staging corpus has 1,543 vision-extracted observations for KR and 19
+people, all uploaded in one batch — so both comparison windows cannot be filled
+and no price relative exists. **That is the integrity floor doing its job.** The
+honest answer to "what is Korean grocery inflation" on that corpus is "we
+cannot tell", and the gateway says so with the exact floors it missed instead of
+signing a zero.
+
+It cannot be papered over either, and that is by design: seeded rows would fill
+the windows, and `CURRENT_RULES.source = 'vision'` forbids them from entering
+the index. The rule that stops us faking a demo is the same rule that stops
+anyone faking a settlement.
+
+Production carries the real corpus. Deploying this branch there is what turns
+the refusal into a number.

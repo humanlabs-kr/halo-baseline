@@ -403,6 +403,57 @@ async function main() {
     );
   }
 
+  /* 5.8 — the gateway URLs in the revert are real endpoints.
+   *
+   * Everything else here supplies the gateway inline, which proves the bytes
+   * and not the deployment. This asks the URLs the resolver actually hands out
+   * whether they are up, and accepts either a signed answer or one of the
+   * documented refusals — a gateway that refuses for a stated reason is
+   * working, one that 404s is not deployed.
+   */
+  console.log('');
+  console.log('the gateway URLs the resolver hands out');
+
+  const REFUSALS = ['NO_INDEX', 'NO_SERIES', 'NO_COUNTRY', 'BAD_NAME', 'NO_SIGNER'];
+  let anyLive = false;
+
+  for (const url of lookup.urls) {
+    const host = new URL(url).host;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sender: RESOLVER, data: lookup.callData }),
+      });
+      const body = (await res.json()) as {
+        data?: { data?: string };
+        error?: { code?: string; message?: string };
+      };
+
+      if (res.ok && body.data?.data) {
+        anyLive = true;
+        console.log(`      ${host.padEnd(26)} signed an answer`);
+      } else if (body.error?.code && REFUSALS.includes(body.error.code)) {
+        anyLive = true;
+        console.log(`      ${host.padEnd(26)} live, refused: ${body.error.code}`);
+        console.log(`      ${' '.repeat(26)} ${body.error.message}`);
+      } else {
+        // Not a defect: production has not deployed this branch yet, and the
+        // list is plural precisely so that does not take the name down.
+        console.log(`      ${host.padEnd(26)} not deployed (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      console.log(`      ${host.padEnd(26)} unreachable — ${String(err).slice(0, 60)}`);
+    }
+  }
+
+  /**
+   * One live gateway is the bar, and that is the whole argument for the list
+   * being plural. A client walks the URLs in order; the first one being down
+   * is a thing the design is supposed to survive rather than a failure.
+   */
+  check(anyLive, 'at least one gateway URL is live', `${lookup.urls.length} tried`);
+
   /* 6 — the whole loop, driven by a standard client rather than by this script.
    *
    * viem implements EIP-3668. Given the gateway it will read the revert, fetch,

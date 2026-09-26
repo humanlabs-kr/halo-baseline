@@ -144,8 +144,14 @@ figure was computed over the population they are recomputing over.
 This shipped wrong. The filter was missing, so synthetic prices could have
 reached a figure that gets signed, bonded and settled on chain, and nothing
 would have indicated it — seeded rows are well-formed and the aggregation is
-perfectly happy to average them. It was found by deploying to an environment
-whose corpus is mostly seed and noticing the index had an opinion about it.
+perfectly happy to average them. It was found by reading the seed script's own
+header, which states the rule in the imperative, and noticing the index was not
+obeying it.
+
+For the record, no published number was ever contaminated: the staging corpus
+reports identical counts before and after the filter, so every row in it was
+vision-extracted. This was a missing guard rather than an observed leak, and
+the distinction is worth keeping — a fix does not need invented evidence.
 
 `rulesHash` moved as a result and the rules version is now `halo-matched-2`.
 The epoch already finalised on Sepolia was published under `halo-matched-1`;

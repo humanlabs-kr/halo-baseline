@@ -249,11 +249,18 @@ alone.
 
 ## Still not done, and why
 
-**The gateway route is not deployed.** `POST /v1/ens/gateway` is committed here
-and the secret is set in both GitHub Environments, but the running worker
-predates it, so the URLs in the `OffchainLookup` answer 404 today. The proof
-script supplies the gateway inline for that reason, and the bytes it produces
-are the bytes that route produces. A deploy, not a code change.
+**The gateway is deployed to staging, not to production.**
+`api.receipto.seriesc.dev` — the second URL in the `OffchainLookup` — serves
+`POST /v1/ens/gateway` and answers correctly. Production is the first URL and
+has not shipped this branch, so it 404s, and a client walking the list falls
+through. That is what the list is plural for.
+
+Staging answers `NO_INDEX` rather than a number: its corpus is 1,543
+vision-extracted observations for KR uploaded in one batch, so the two
+comparison windows cannot both be filled and no price relative exists. The
+gateway returns the exact floors it missed instead of signing a zero. It cannot
+be staged around either — seeded rows would fill the windows and
+`CURRENT_RULES.source = 'vision'` forbids them.
 
 **Kaia has no Uniswap v4.** World Chain and Celo do, so 368,000 of the 417,000
 are reachable with the contracts as they stand; the remaining 49,788 are not,
