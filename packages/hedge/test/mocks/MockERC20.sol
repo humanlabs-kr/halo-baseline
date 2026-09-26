@@ -89,3 +89,44 @@ contract FeeOnTransferERC20 is MockERC20 {
         return true;
     }
 }
+
+/**
+ * A collateral token that calls back, which is the case the guard exists for.
+ *
+ * Bridged stablecoins are upgradeable, so whether transferFrom does something
+ * extra is somebody else's decision taken later. This one re-enters split()
+ * from inside its own transfer, which — without a guard — would have the outer
+ * call measure a balance delta that includes the inner deposit and mint
+ * against it twice.
+ */
+interface IReenterable {
+    function split(bytes32 id, uint256 amount) external returns (uint256);
+}
+
+contract ReentrantERC20 is MockERC20 {
+    IReenterable public target;
+    bytes32 public marketId;
+    bool internal _armed;
+
+    constructor() MockERC20("Reentrant", "RE", 6) {}
+
+    function arm(IReenterable target_, bytes32 marketId_) external {
+        target = target_;
+        marketId = marketId_;
+        _armed = true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+
+        if (_armed) {
+            _armed = false; // one shot, so the recursion terminates either way
+            target.split(marketId, 1);
+        }
+        return true;
+    }
+}

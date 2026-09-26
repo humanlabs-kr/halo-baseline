@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {EpochVault} from "../src/EpochVault.sol";
 import {HaloIndexOracle} from "../src/HaloIndexOracle.sol";
 import {OutcomeToken} from "../src/OutcomeToken.sol";
-import {MockERC20, FeeOnTransferERC20} from "./mocks/MockERC20.sol";
+import {MockERC20, FeeOnTransferERC20, ReentrantERC20, IReenterable} from "./mocks/MockERC20.sol";
 
 /**
  * The invariant these tests exist for:
@@ -213,6 +213,36 @@ contract EpochVaultTest is Test {
         // Alice gets back 99% of 990: the token's fee, not the vault's.
         assertEq(fot.balanceOf(alice) - balanceBefore, 990e6 - 9.9e6);
         assertLe(v.collateralOf(mid), fot.balanceOf(address(v)));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                 REENTRANCY
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * The hole the balance-delta measurement opens on its own.
+     *
+     * Without the guard the outer split() measures a delta that includes the
+     * deposit made by the inner one, and mints against the same collateral
+     * twice. With it, the inner call reverts and takes the outer down with it,
+     * which is the correct outcome: a token that does this is not usable as
+     * collateral and finding out at deposit time is the cheap way to learn.
+     */
+    function test_split_rejectsReentrantCollateral() public {
+        ReentrantERC20 evil = new ReentrantERC20();
+        EpochVault v = new EpochVault(address(evil), address(oracle));
+        bytes32 mid = v.createMarket(SERIES, EPOCH, STRIKE, CAP);
+
+        evil.mint(alice, 10_000e6);
+        vm.prank(alice);
+        evil.approve(address(v), type(uint256).max);
+        evil.arm(IReenterable(address(v)), mid);
+
+        vm.prank(alice);
+        vm.expectRevert(EpochVault.Reentrancy.selector);
+        v.split(mid, 1_000e6);
+
+        assertEq(v.collateralOf(mid), 0, "state survived a reverted reentrant call");
     }
 
     /*//////////////////////////////////////////////////////////////
