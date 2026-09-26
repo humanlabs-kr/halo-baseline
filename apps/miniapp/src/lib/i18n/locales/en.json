@@ -544,5 +544,9 @@
   "Redeem": "Redeem",
   "Locked while this month closes. Opens {{date}}.": "Locked while this month closes. Opens {{date}}.",
   "Paid out": "Paid out",
-  "Paid out nothing": "Paid out nothing"
+  "Paid out nothing": "Paid out nothing",
+  "Grocery prices in {{country}}": "Grocery prices in {{country}}",
+  "in 30 days": "in 30 days",
+  "From {{count}} matched observations · as of {{date}}": "From {{count}} matched observations · as of {{date}}",
+  "Not published yet": "Not published yet"
 }

@@ -1,4 +1,5 @@
 import { CoverSheet } from '@/components/ledger/CoverSheet';
+import { IndexBand } from '@/components/ledger/IndexBand';
 import { Positions, type Position } from '@/components/ledger/Positions';
 import { TopBar } from '@/components/ledger/TopBar';
 
@@ -44,6 +45,18 @@ export default function CoverPreview() {
   return (
     <div className="flex min-h-full flex-col bg-white pb-4 text-[#191F28]">
       <TopBar title="Cover" back fallback="/ledger" />
+      {/* Both index states: published, and held back with the reason. */}
+      <div className="flex flex-col gap-2 pb-2">
+        <IndexBand country="Japan" changeBps={430} observations={214} asOf="26 Sep" />
+        <IndexBand
+          country="Nigeria"
+          changeBps={null}
+          observations={7}
+          asOf={null}
+          reasons={['needs 20 matched pairs, has 7', 'needs 3 outlets, has 2']}
+        />
+      </div>
+
       <CoverSheet
         terms={{ cover: 4000, strikeBps: 500, capBps: 1500, priceHigh: 0.3 }}
         currency="JPY"
